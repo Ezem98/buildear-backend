@@ -204,14 +204,14 @@ export class UserModel {
                 'write'
             )
 
-            const updatedUser = await this.getByUsername(
+            const { data } = await this.getByUsername(
                 username ?? currentUserName
             )
 
             return {
                 successfully: true,
                 message: 'User updated',
-                data: updatedUser,
+                data: data,
             }
         } catch (error: any) {
             return { successfully: false, message: error.message }

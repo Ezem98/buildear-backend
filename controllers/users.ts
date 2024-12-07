@@ -69,15 +69,14 @@ export class UserController {
                 .status(400)
                 .json({ error: JSON.parse(validationResult.error.message) })
 
-        const {
-            successfully,
-            message,
-            data: user,
-        } = await UserModel.update(currentUserName, validationResult.data)
+        const { successfully, message, data } = await UserModel.update(
+            currentUserName,
+            validationResult.data
+        )
 
         if (!successfully) return res.status(400).send({ message })
 
-        return res.status(201).json({ successfully, message, user })
+        return res.status(201).json({ successfully, message, data })
     }
 
     static async delete(req: Request, res: Response) {
