@@ -1,5 +1,9 @@
 import type { IConversationMessage } from '../types/conversationMessage.js'
+import type { ChatContextMessage } from '../services/openAI.js'
 import { db } from '../utils/consts.js'
+
+export const CHAT_CONTEXT_MESSAGE_LIMIT = 12
+export const CHAT_CONTEXT_CHARACTER_LIMIT = 12_000
 
 export class ConversationMessageModel {
     static async create(newMessage: IConversationMessage, userId: number) {
@@ -148,6 +152,47 @@ export class ConversationMessageModel {
                 args: [conversationId, userId],
             })
         ).rows
+    }
+
+    static async getContextWindow(
+        conversationId: number,
+        userId: number
+    ): Promise<ChatContextMessage[]> {
+        const rows = (
+            await db.execute({
+                sql: `
+                    SELECT m.message, m.sender
+                    FROM conversation_messages m
+                    JOIN conversations c ON c.id = m.conversation_id
+                    WHERE m.conversation_id = ? AND c.user_id = ?
+                    ORDER BY m.created_at DESC, m.id DESC
+                    LIMIT ?
+                `,
+                args: [conversationId, userId, CHAT_CONTEXT_MESSAGE_LIMIT],
+            })
+        ).rows
+
+        const selected: ChatContextMessage[] = []
+        let remainingCharacters = CHAT_CONTEXT_CHARACTER_LIMIT
+
+        for (const row of rows) {
+            if (row.sender !== 'user' && row.sender !== 'assistant') continue
+
+            const content = String(row.message).trim()
+            if (!content) continue
+
+            const boundedContent = content.slice(0, remainingCharacters)
+            if (!boundedContent) break
+
+            selected.push({
+                role: row.sender,
+                content: boundedContent,
+            })
+            remainingCharacters -= boundedContent.length
+            if (remainingCharacters === 0) break
+        }
+
+        return selected.reverse()
     }
 
     static async delete(id: number, userId: number): Promise<boolean> {

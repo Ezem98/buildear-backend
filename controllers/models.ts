@@ -1,28 +1,40 @@
 import type { Request, Response } from 'express'
-import type { UploadedFile } from 'express-fileupload'
 import { AppError } from '../errors/appError.js'
 import { assertOwnedUserId } from '../middleware/auth.js'
 import { ModelModel } from '../models/models.js'
 import { validModelData, validPartialModelData } from '../schemas/models.js'
+import {
+    validateImageUpload,
+    validateModelUpload,
+    type ValidatedUpload,
+} from '../services/uploads.js'
 
 function optionalNumber(value: unknown): unknown {
     return value === undefined ? undefined : Number(value)
 }
 
-function normalizedModelBody(request: Request) {
-    const { body, files } = request
-    const modelData = files?.modelData as UploadedFile | undefined
-    const modelImage = files?.modelImage as UploadedFile | undefined
+function normalizedModelBody(
+    request: Request,
+    modelData?: ValidatedUpload<string>,
+    modelImage?: ValidatedUpload<string>
+) {
+    const {
+        categoryId,
+        difficultyRating,
+        data: _data,
+        image: _image,
+        ...body
+    } = request.body
 
     return {
         ...body,
-        data: modelData?.tempFilePath ?? body.data,
-        image: modelImage?.tempFilePath ?? body.image,
+        data: modelData?.path,
+        image: modelImage?.path,
         width: optionalNumber(body.width),
         height: optionalNumber(body.height),
-        category_id: optionalNumber(body.category_id ?? body.categoryId),
+        category_id: optionalNumber(body.category_id ?? categoryId),
         difficulty_rating: optionalNumber(
-            body.difficulty_rating ?? body.difficultyRating
+            body.difficulty_rating ?? difficultyRating
         ),
     }
 }
@@ -109,7 +121,14 @@ export class ModelController {
                 'No se encontró ningún archivo'
             )
 
-        const validationResult = validModelData(normalizedModelBody(req))
+        const modelData = await validateModelUpload(req.files?.modelData, true)
+        const modelImage = await validateImageUpload(
+            req.files?.modelImage,
+            true
+        )
+        const validationResult = validModelData(
+            normalizedModelBody(req, modelData, modelImage)
+        )
 
         if (!validationResult.success)
             throw new AppError(
@@ -120,7 +139,11 @@ export class ModelController {
             )
 
         const { successfully, message, data } = await ModelModel.create(
-            validationResult.data
+            validationResult.data,
+            {
+                modelData: modelData!,
+                modelImage: modelImage!,
+            }
         )
 
         if (!successfully)
@@ -135,7 +158,14 @@ export class ModelController {
 
     static async update(req: Request, res: Response) {
         const { id } = req.params
-        const validationResult = validPartialModelData(normalizedModelBody(req))
+        const modelData = await validateModelUpload(req.files?.modelData, false)
+        const modelImage = await validateImageUpload(
+            req.files?.modelImage,
+            false
+        )
+        const validationResult = validPartialModelData(
+            normalizedModelBody(req, modelData, modelImage)
+        )
 
         if (!validationResult.success)
             throw new AppError(
@@ -147,7 +177,8 @@ export class ModelController {
 
         const { successfully, message, data } = await ModelModel.update(
             +id,
-            validationResult.data
+            validationResult.data,
+            { modelData, modelImage }
         )
 
         if (!successfully)

@@ -29,6 +29,7 @@ export const openAISchema = z
 export const openAIMessageSchema = z
     .object({
         message: z.string().trim().min(1).max(4000),
+        conversation_id: z.number().int().positive().optional(),
     })
     .strict()
 

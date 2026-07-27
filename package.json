@@ -15,7 +15,9 @@
         "test": "tsx --test tests/*.test.ts",
         "test:coverage": "tsx --test --experimental-test-coverage tests/*.test.ts",
         "db:migrate": "tsx scripts/migrate.ts apply",
-        "db:migrate:verify": "tsx scripts/migrate.ts verify"
+        "db:migrate:verify": "tsx scripts/migrate.ts verify",
+        "db:migrate:staging": "node --env-file=.env.staging --import tsx scripts/migrate.ts apply",
+        "db:migrate:staging:verify": "node --env-file=.env.staging --import tsx scripts/migrate.ts verify"
     },
     "engines": {
         "node": ">=26.5.0 <27",

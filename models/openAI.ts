@@ -3,6 +3,7 @@ import type { IGuide } from '../types/guide.js'
 import type { IOpenAI } from '../types/openAI.js'
 import {
     CHAT_PROMPT_VERSION,
+    type ChatContextMessage,
     createOpenAIProviderFromEnvironment,
     GUIDE_PROMPT_VERSION,
     type OpenAIMetadata,
@@ -77,10 +78,11 @@ export class OpenAIModel {
 
     static async responseMessage(
         message: string,
-        userId: number
+        userId: number,
+        context: readonly ChatContextMessage[] = []
     ): Promise<IDBResponse<string>> {
         try {
-            const result = await provider().respondToMessage(message)
+            const result = await provider().respondToMessage(message, context)
             await AiGenerationModel.record(userId, 'chat', result.metadata)
             return {
                 successfully: true,

@@ -1,8 +1,11 @@
 import { Request, Response } from 'express'
 import { AppError } from '../errors/appError.js'
 import { authenticatedUser } from '../middleware/auth.js'
+import { ConversationMessageModel } from '../models/conversationMessages.js'
+import { ConversationModel } from '../models/conversations.js'
 import { OpenAIModel } from '../models/openAI.js'
 import { validOpenAIData, validOpenAIMessageData } from '../schemas/openAI.js'
+import type { ChatContextMessage } from '../services/openAI.js'
 
 export class OpenAIController {
     static async generateStepsWithOpenAI(req: Request, res: Response) {
@@ -46,10 +49,32 @@ export class OpenAIController {
                 validationResult.error.issues
             )
 
+        const conversationId = validationResult.data.conversation_id
+        let context: ChatContextMessage[] = []
+
+        if (conversationId !== undefined) {
+            const conversation = await ConversationModel.get(
+                conversationId,
+                auth.userId
+            )
+            if (!conversation) {
+                throw new AppError(
+                    404,
+                    'CONVERSATION_NOT_FOUND',
+                    'ConversaciÃ³n no encontrada'
+                )
+            }
+            context = await ConversationMessageModel.getContextWindow(
+                conversationId,
+                auth.userId
+            )
+        }
+
         const { successfully, message, data } =
             await OpenAIModel.responseMessage(
                 validationResult.data.message,
-                auth.userId
+                auth.userId,
+                context
             )
 
         if (!successfully)

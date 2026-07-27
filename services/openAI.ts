@@ -7,7 +7,12 @@ import type { IOpenAI } from '../types/openAI.js'
 import { EXPERIENCE_LEVEL } from '../utils/consts.js'
 
 export const GUIDE_PROMPT_VERSION = 'guide-responses-v1'
-export const CHAT_PROMPT_VERSION = 'chat-responses-v1'
+export const CHAT_PROMPT_VERSION = 'chat-responses-v2-context-window'
+
+export interface ChatContextMessage {
+    role: 'user' | 'assistant'
+    content: string
+}
 
 export interface OpenAIMetadata {
     responseId?: string
@@ -27,7 +32,10 @@ export interface OpenAIResult<T> {
 
 export interface OpenAIProvider {
     generateGuide(input: IOpenAI): Promise<OpenAIResult<IGuide>>
-    respondToMessage(message: string): Promise<OpenAIResult<string>>
+    respondToMessage(
+        message: string,
+        context?: readonly ChatContextMessage[]
+    ): Promise<OpenAIResult<string>>
 }
 
 export class OpenAIServiceError extends Error {
@@ -145,6 +153,26 @@ function guideInput(input: IOpenAI): string {
     })
 }
 
+function chatInput(
+    message: string,
+    context: readonly ChatContextMessage[]
+): ChatContextMessage[] {
+    const input = context.map((item) => ({
+        role: item.role,
+        content: item.content,
+    }))
+    const lastMessage = input.at(-1)
+
+    if (
+        lastMessage?.role !== 'user' ||
+        lastMessage.content.trim() !== message.trim()
+    ) {
+        input.push({ role: 'user', content: message })
+    }
+
+    return input
+}
+
 export class ResponsesOpenAIService implements OpenAIProvider {
     constructor(
         private readonly client: Pick<OpenAI, 'responses'>,
@@ -247,7 +275,10 @@ export class ResponsesOpenAIService implements OpenAIProvider {
         }
     }
 
-    async respondToMessage(message: string): Promise<OpenAIResult<string>> {
+    async respondToMessage(
+        message: string,
+        context: readonly ChatContextMessage[] = []
+    ): Promise<OpenAIResult<string>> {
         const startedAt = performance.now()
         const model = this.config.chatModel
 
@@ -256,7 +287,7 @@ export class ResponsesOpenAIService implements OpenAIProvider {
                 model,
                 instructions:
                     'Sos un asistente profesional de construcción. Respondé en español de Argentina, priorizá la seguridad y recomendá intervención profesional cuando corresponda.',
-                input: message,
+                input: chatInput(message, context),
                 store: false,
             })
 

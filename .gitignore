@@ -10,6 +10,9 @@ yarn-error.log*
 
 # Environment variables
 .env
+.env.*
+!.env.example
+!.env.staging.example
 
 # Local database backups
 .backups/

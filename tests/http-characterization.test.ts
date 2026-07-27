@@ -157,6 +157,42 @@ async function api(
     }
 }
 
+async function multipartApi(
+    baseUrl: string,
+    route: string,
+    token: string,
+    fields: Record<string, string>,
+    files: Array<{
+        field: string
+        name: string
+        type: string
+        content: Uint8Array
+    }>
+): Promise<ApiResponse> {
+    const form = new FormData()
+    for (const [key, value] of Object.entries(fields)) form.set(key, value)
+    for (const file of files) {
+        const content = Uint8Array.from(file.content).buffer
+        form.set(
+            file.field,
+            new Blob([content], { type: file.type }),
+            file.name
+        )
+    }
+
+    const response = await fetch(`${baseUrl}${route}`, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${token}` },
+        body: form,
+    })
+    const text = await response.text()
+    return {
+        status: response.status,
+        body: text ? JSON.parse(text) : undefined,
+        headers: response.headers,
+    }
+}
+
 function assertPublicUser(user: Record<string, unknown>): void {
     assert.equal('password' in user, false)
     assert.equal('password_salt' in user, false)
@@ -209,6 +245,23 @@ test('protects users and owned resources without leaking credentials', async () 
             allowedCors.headers.get('access-control-allow-origin'),
             'http://allowed.example.test'
         )
+        assert.equal(
+            allowedCors.headers.get('x-content-type-options'),
+            'nosniff'
+        )
+        assert.equal(allowedCors.headers.get('x-frame-options'), 'DENY')
+        assert.match(
+            allowedCors.headers.get('content-security-policy') ?? '',
+            /default-src 'none'/
+        )
+
+        const liveHealth = await api(server.baseUrl, '/health/live')
+        assert.equal(liveHealth.status, 200)
+        assert.equal(liveHealth.body.status, 'ok')
+
+        const readyHealth = await api(server.baseUrl, '/health/ready')
+        assert.equal(readyHealth.status, 200)
+        assert.equal(readyHealth.body.dependencies.database, 'ready')
 
         const deniedCors = await api(server.baseUrl, '/', {
             origin: 'http://denied.example.test',
@@ -342,6 +395,14 @@ test('protects users and owned resources without leaking credentials', async () 
             `/models/${seededModel.id}`
         )
         assert.equal(publicModel.status, 200)
+        assert.equal(publicModel.headers.get('deprecation'), 'true')
+
+        const versionedPublicModel = await api(
+            server.baseUrl,
+            `/api/v1/models/${seededModel.id}`
+        )
+        assert.equal(versionedPublicModel.status, 200)
+        assert.equal(versionedPublicModel.headers.get('deprecation'), null)
 
         const unauthorizedModelUpdate = await api(
             server.baseUrl,
@@ -381,6 +442,91 @@ test('protects users and owned resources without leaking credentials', async () 
         assert.equal(
             modelUpdate.body.data.model_data,
             'https://example.test/model.glb'
+        )
+
+        const glb = new Uint8Array(12)
+        glb.set(new TextEncoder().encode('glTF'), 0)
+        new DataView(glb.buffer).setUint32(4, 2, true)
+        new DataView(glb.buffer).setUint32(8, glb.byteLength, true)
+        const png = Uint8Array.from([
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+        ])
+
+        const createdModel = await multipartApi(
+            server.baseUrl,
+            '/models',
+            aliceToken,
+            {
+                name: 'Modelo seguro',
+                description: 'Modelo subido con contenido validado',
+                difficulty_rating: '3',
+                category_id: '3',
+                width: '300',
+                height: '240',
+                position: 'vertical',
+            },
+            [
+                {
+                    field: 'modelData',
+                    name: 'modelo.glb',
+                    type: 'model/gltf-binary',
+                    content: glb,
+                },
+                {
+                    field: 'modelImage',
+                    name: 'preview.png',
+                    type: 'image/png',
+                    content: png,
+                },
+            ]
+        )
+        assert.equal(createdModel.status, 201)
+        assert.match(
+            createdModel.body.data.model_data,
+            /^https:\/\/assets\.example\.test\/modelsData\//
+        )
+        assert.match(
+            createdModel.body.data.model_image,
+            /^https:\/\/assets\.example\.test\/modelsImages\//
+        )
+        assert.equal(createdModel.body.data.model_format, 'glb')
+        assert.equal(createdModel.body.data.model_size_bytes, glb.byteLength)
+        assert.match(createdModel.body.data.model_checksum, /^[a-f0-9]{64}$/)
+        assert.ok(createdModel.body.data.model_public_id)
+        assert.ok(createdModel.body.data.image_public_id)
+
+        const invalidModelUpload = await multipartApi(
+            server.baseUrl,
+            '/models',
+            aliceToken,
+            {
+                name: 'Modelo inválido',
+                description: 'El contenido no coincide con la extensión',
+                difficulty_rating: '3',
+                category_id: '3',
+                width: '300',
+                height: '240',
+                position: 'vertical',
+            },
+            [
+                {
+                    field: 'modelData',
+                    name: 'falso.glb',
+                    type: 'model/gltf-binary',
+                    content: new TextEncoder().encode('contenido inválido'),
+                },
+                {
+                    field: 'modelImage',
+                    name: 'preview.png',
+                    type: 'image/png',
+                    content: png,
+                },
+            ]
+        )
+        assert.equal(invalidModelUpload.status, 415)
+        assert.equal(
+            invalidModelUpload.body.error.code,
+            'MODEL_CONTENT_INVALID'
         )
 
         const invalidOpenAIMessage = await api(
@@ -447,7 +593,11 @@ test('protects users and owned resources without leaking credentials', async () 
         )
         assert.deepEqual(
             generations.records.map((record) => record.prompt_version),
-            ['guide-responses-v1', 'chat-responses-v1', 'chat-responses-v1']
+            [
+                'guide-responses-v1',
+                'chat-responses-v2-context-window',
+                'chat-responses-v2-context-window',
+            ]
         )
         assert.equal(generations.records[0].input_tokens, 100)
         assert.equal(generations.records[1].output_tokens, 10)
@@ -543,6 +693,89 @@ test('protects users and owned resources without leaking credentials', async () 
         assert.equal(message.status, 201)
         const messageId = Number(message.body.data.id)
 
+        const assistantMessage = await api(
+            server.baseUrl,
+            '/conversationMessage',
+            {
+                method: 'POST',
+                token: aliceToken,
+                body: {
+                    conversation_id: conversationId,
+                    message: 'Respuesta previa',
+                    sender: 'assistant',
+                },
+            }
+        )
+        assert.equal(assistantMessage.status, 201)
+
+        const contextualChat = await api(server.baseUrl, '/openAI/message', {
+            method: 'POST',
+            token: aliceToken,
+            body: {
+                conversation_id: conversationId,
+                message: 'inspect-context',
+            },
+        })
+        assert.equal(contextualChat.status, 200)
+        assert.deepEqual(JSON.parse(contextualChat.body.data), [
+            { role: 'user', content: 'Hola' },
+            { role: 'assistant', content: 'Respuesta previa' },
+        ])
+
+        const foreignContext = await api(server.baseUrl, '/openAI/message', {
+            method: 'POST',
+            token: bobToken,
+            body: {
+                conversation_id: conversationId,
+                message: 'No debe acceder',
+            },
+        })
+        assert.equal(foreignContext.status, 404)
+        assert.equal(foreignContext.body.error.code, 'CONVERSATION_NOT_FOUND')
+
+        const bulkMessages = await api(
+            server.baseUrl,
+            '/conversationMessage/all',
+            {
+                method: 'POST',
+                token: aliceToken,
+                body: {
+                    messages: Array.from({ length: 13 }, (_, index) => ({
+                        conversation_id: conversationId,
+                        message: `context-${index}-${'x'.repeat(1000)}`,
+                        sender: index % 2 === 0 ? 'user' : 'assistant',
+                    })),
+                },
+            }
+        )
+        assert.equal(bulkMessages.status, 201)
+
+        const boundedContextChat = await api(
+            server.baseUrl,
+            '/openAI/message',
+            {
+                method: 'POST',
+                token: aliceToken,
+                body: {
+                    conversation_id: conversationId,
+                    message: 'inspect-context',
+                },
+            }
+        )
+        assert.equal(boundedContextChat.status, 200)
+        const boundedContext = JSON.parse(
+            boundedContextChat.body.data
+        ) as Array<{
+            content: string
+        }>
+        assert.ok(boundedContext.length <= 12)
+        assert.ok(
+            boundedContext.reduce(
+                (total, item) => total + item.content.length,
+                0
+            ) <= 12_000
+        )
+
         const foreignMessage = await api(
             server.baseUrl,
             `/conversationMessage/${messageId}`,
@@ -556,7 +789,7 @@ test('protects users and owned resources without leaking credentials', async () 
             { token: aliceToken }
         )
         assert.equal(messageList.status, 200)
-        assert.equal(messageList.body.data.length, 1)
+        assert.equal(messageList.body.data.length, 15)
 
         const deleteMessage = await api(
             server.baseUrl,

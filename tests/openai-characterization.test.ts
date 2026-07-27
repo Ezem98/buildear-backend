@@ -65,13 +65,20 @@ test('uses Responses with structured output, store false and simulated telemetry
     assert.equal(guideResult.metadata.inputTokens, 120)
     assert.equal(guideResult.metadata.outputTokens, 80)
 
-    const messageResult = await service.respondToMessage('Mensaje de prueba')
+    const messageResult = await service.respondToMessage('Mensaje de prueba', [
+        { role: 'user', content: 'Pregunta anterior' },
+        { role: 'assistant', content: 'Respuesta anterior' },
+    ])
     assert.equal(messageResult.data, 'Respuesta simulada')
     assert.equal(messageResult.metadata.responseId, 'resp_chat_test')
 
+    await service.respondToMessage('Mensaje ya guardado', [
+        { role: 'user', content: 'Mensaje ya guardado' },
+    ])
+
     assert.deepEqual(
         calls.map(({ operation }) => operation),
-        ['responses.parse', 'responses.create']
+        ['responses.parse', 'responses.create', 'responses.create']
     )
     for (const call of calls) {
         assert.equal(
@@ -84,6 +91,20 @@ test('uses Responses with structured output, store false and simulated telemetry
         text?: { format?: unknown }
     }
     assert.ok(guidePayload.text?.format)
+    const chatPayload = calls[1].payload as {
+        input?: Array<{ role: string; content: string }>
+    }
+    assert.deepEqual(chatPayload.input, [
+        { role: 'user', content: 'Pregunta anterior' },
+        { role: 'assistant', content: 'Respuesta anterior' },
+        { role: 'user', content: 'Mensaje de prueba' },
+    ])
+    const deduplicatedChatPayload = calls[2].payload as {
+        input?: Array<{ role: string; content: string }>
+    }
+    assert.deepEqual(deduplicatedChatPayload.input, [
+        { role: 'user', content: 'Mensaje ya guardado' },
+    ])
 })
 
 test('normalizes incomplete Responses without making a real request', async () => {

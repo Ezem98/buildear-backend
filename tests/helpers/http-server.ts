@@ -1,4 +1,5 @@
 import { app } from '../../app.js'
+import { CloudinaryModel } from '../../models/cloudinary.js'
 import { OpenAIModel } from '../../models/openAI.js'
 import {
     CHAT_PROMPT_VERSION,
@@ -30,7 +31,7 @@ const fakeProvider: OpenAIProvider = {
             },
         }
     },
-    async respondToMessage(message) {
+    async respondToMessage(message, context = []) {
         if (message === 'simulate-error') {
             throw new OpenAIServiceError('OPENAI_PROVIDER_ERROR', {
                 model: 'gpt-4o-mini',
@@ -41,7 +42,10 @@ const fakeProvider: OpenAIProvider = {
             })
         }
         return {
-            data: 'Respuesta HTTP simulada',
+            data:
+                message === 'inspect-context'
+                    ? JSON.stringify(context)
+                    : 'Respuesta HTTP simulada',
             metadata: {
                 responseId: 'resp_http_chat',
                 model: 'gpt-4o-mini',
@@ -56,6 +60,27 @@ const fakeProvider: OpenAIProvider = {
 }
 
 OpenAIModel.setProviderForTests(fakeProvider)
+CloudinaryModel.setProviderForTests({
+    async upload(filePath, options) {
+        const format =
+            options.resource_type === 'raw'
+                ? filePath.toLowerCase().endsWith('.gltf')
+                    ? 'gltf'
+                    : 'glb'
+                : 'png'
+        return {
+            secure_url: `https://assets.example.test/${options.folder}/${options.public_id}.${format}`,
+            public_id: `${options.folder}/${options.public_id}`,
+            format,
+            bytes: 128,
+            version: 1,
+            resource_type: options.resource_type,
+        }
+    },
+    async destroy() {
+        return { result: 'ok' }
+    },
+})
 
 const server = app.listen(0, '127.0.0.1', () => {
     const address = server.address()
@@ -68,7 +93,7 @@ const server = app.listen(0, '127.0.0.1', () => {
 function shutdown(): void {
     server.close(() => {
         db.close()
-        process.exit(0)
+        process.exitCode = 0
     })
 }
 

@@ -33,22 +33,23 @@ Se usa la misma leyenda que en `CAMBIOS_Y_MEJORAS.md`: ✅ verificado, 🟡 ejec
 | Inventario de las 18 dependencias | ✅ Verificado | Versiones actuales y objetivos relevados desde `package-lock.json` y npm Registry. | Reconsultar versiones justo antes de cada PR. |
 | Auditoría de seguridad inicial | ✅ Verificado | Baseline: 1 vulnerabilidad crítica, 5 altas y 2 moderadas en dependencias de producción. | Repetir después de cada fase y justificar cualquier excepción. |
 | Auditoría de seguridad actual | ✅ Verificado | `npm audit --omit=dev` devuelve cero vulnerabilidades después de OpenAI, parches y Express 5. | Mantener el gate después de cada grupo. |
-| Node.js 26.5.0 como objetivo | ✅ Verificado en el checkout | `.nvmrc`, `engines`, `packageManager` y `@types/node` 26.1.1 están alineados. | Replicar la versión exacta en CI y despliegue. |
+| Node.js 26.5.0 como objetivo | ✅ Verificado en checkout y configurado en CI | `.nvmrc`, `engines`, `packageManager`, `@types/node` 26.1.1 y el workflow usan 26.5.0 exacto. | Replicar la versión exacta en despliegue y observar la primera ejecución alojada. |
 | Runtime efectivo del checkout | 🟡 Parcial | Todos los gates y el smoke test se ejecutaron con Node 26.5.0/npm 11.17.0 desde el ZIP oficial verificado. El Node global inspeccionado sigue en 22.17.0 porque no hay `nvm` instalado. | Instalar/seleccionar 26.5.0 como runtime global del equipo o usar un gestor compatible. |
 | Cambios de esquema Turso requeridos por OpenAI | ✅ Verificado | Las 14 columnas faltantes fueron aplicadas y verificadas por MCP el 2026-07-27. | Integrarlas en repositorios y servicios. |
 | Esquema remoto de `users` | ✅ Verificado | Las 12 columnas están presentes y la auditoría no encontró nombres vacíos ni experiencia nula. | Endurecer validaciones desde el código sin reconstruir la tabla. |
 | Esquema remoto del resto de tablas | ✅ Verificado | Las ocho tablas de negocio y sus columnas finales fueron verificadas por MCP. | Consumir el esquema final desde repositorios y servicios. |
 | Integridad referencial de datos existentes | ✅ Verificado | `foreign_key_check` no devolvió filas y `foreign_key_list` confirmó ocho relaciones declaradas. | Se decidió conservar `NO ACTION` y resolver borrados relacionados explícitamente. |
 | Índices y seed remoto | ✅ Verificado | Ocho índices explícitos, unicidades y cinco categorías están versionados en `0001`. | Mantener el gate en CI mediante el runner. |
-| Tabla `schema_migrations` | ✅ Verificado localmente | `local.db` contiene `0001`–`0004` con checksums validados; Turso conserva `0001`/`0002`. | Verificar `0003`/`0004` en Turso staging antes de producción. |
+| Tabla `schema_migrations` | ✅ Verificado localmente y en staging | `local.db` y `buildear-db-staging` contienen `0001`–`0004` con checksums válidos; staging tiene 10 tablas, 10 índices e integridad OK. | Ejecutar pruebas funcionales de staging antes de promover a producción. |
 | Sincronización de `local.db` | ✅ Verificado | Fue actualizada hasta `0004`, pasa integridad/FKs y cada conexión `file:` activa `PRAGMA foreign_keys = ON`. | Mantener el gate al avanzar dependencias. |
 | Actualización de paquetes | 🟡 En curso | Se actualizaron libSQL, OpenAI, Zod, Express, Cloudinary, CORS, fileupload, dotenv, tsx y tipos; Passport fue retirado. | Continuar TypeScript y configuración centralizada. |
-| OpenAI SDK 6 | ✅ Verificado localmente | `openai` 6.49.0 con proveedor inyectable y tests sin red. | Validar credenciales/proyecto exclusivamente en staging. |
-| Responses para chat | 🟡 Implementación local verificada | Usa `responses.create`, `output_text`, `store: false` y telemetría. | Agregar contexto autorizado y ejecutar evals/canary. |
-| Responses para guías | 🟡 Implementación local verificada | Usa `responses.parse`, Zod Structured Outputs, `store: false` y telemetría. | Ejecutar evals/canary con el modelo configurado. |
-| Selección de modelos | ⬜ Pendiente | Existe una matriz candidata, sin evals ejecutadas. | Registrar baseline del Assistant y comparar modelos por carga. |
+| OpenAI SDK 6 | ✅ Verificado localmente y contra el proveedor | `openai` 6.49.0 con proveedor inyectable, tests sin red y smoke real exitoso con metadata de uso. | Mantener el smoke fuera de CI y ejecutar canary con presupuesto acotado. |
+| Responses para chat | 🟡 Proveedor y telemetría E2E verificados | Registro, login y `POST /api/v1/openai/message` completaron el flujo real; `ai_generations` contiene metadata, pero no se creó conversación ni se guardaron mensajes. | Persistir mensajes y metadata del asistente; luego ejecutar evals/canary. |
+| Responses para guías | 🟡 Proveedor y telemetría E2E verificados | `POST /api/v1/openai` completó Structured Outputs y persistió telemetría en `ai_generations`, pero no guardó el JSON en `user_models`. | Definir `model_id`/recurso de guía, persistir contenido y comparar modelos. |
+| Selección de modelos | 🟡 Comparación inicial ejecutada | Los mismos smokes reales pasaron con `gpt-4o-mini` y `gpt-5.4-mini`; el segundo fue más lento y entre 7,18 y 14,97 veces más costoso en estas muestras. | Crear dataset y graders para comparar calidad y seguridad antes de elegir. |
 | Express 5, Zod 4 y TypeScript | 🟡 En curso | Express 5.2.1, Zod 4.4.3 y TypeScript 6.0.3 pasan la suite. | Esperar soporte de TypeScript 7 en typescript-eslint. |
 | Seguridad y caracterización HTTP | ✅ Baseline verificado | Sesiones opacas, DTO público, ownership, roles, scrypt/rehash, límites y seis tests verdes. El ADR decide no usar refresh inicialmente. | Adoptar store compartido de rate limiting al escalar y replicar gates en CI. |
+| CI y operación HTTP | 🟡 Configurado localmente | Workflow sin secretos, `/api/v1`, headers defensivos, health/readiness y shutdown pasan tests/build. | Publicar el workflow y verificar su primera ejecución en GitHub Actions. |
 
 ### Registro de decisiones y supuestos
 
@@ -91,11 +92,11 @@ Fuente: [ciclo de releases de Node.js](https://nodejs.org/en/about/previous-rele
 |---|---:|---:|---:|---|---|
 | `@libsql/client` | 0.17.4 | 0.17.4 | 0.17.4 | Medio | ✅ Actualizado e importado desde `@libsql/client`; runner y tests `file:` verdes. |
 | `@types/express-fileupload` | 1.5.1 | 1.5.1 | 1.5.1 | Bajo | ✅ En `devDependencies`. |
-| `cloudinary` | 2.10.0 | 2.10.0 | 2.10.0 | Alto/seguridad | ✅ Actualizado; falta completar lifecycle de assets. |
+| `cloudinary` | 2.10.0 | 2.10.0 | 2.10.0 | Alto/seguridad | 🟡 Actualizado; lifecycle de modelos verificado con doble local, faltan perfiles y staging. |
 | `cors` | 2.8.6 | 2.8.6 | 2.8.6 | Bajo | ✅ Actualizado y configurado con allowlist. |
 | `dotenv` | 17.4.2 | 17.4.2 | 17.4.2 | Medio | ✅ Actualizado; falta schema central de configuración. |
 | `express` | 5.2.1 | 5.2.1 | 5.2.1 | Alto/major | ✅ Migrado con tests HTTP y error middleware. |
-| `express-fileupload` | 1.5.2 | 1.5.2 | 1.5.2 | Bajo | ✅ Actualizado con límites; falta validar contenido. |
+| `express-fileupload` | 1.5.2 | 1.5.2 | 1.5.2 | Bajo | ✅ Actualizado con límites, temporales portables y validación real de modelos/imágenes multipart. |
 | `openai` | 6.49.0 | 6.49.0 | 6.49.0 | Alto/major | ✅ Responses API y mocks verificados localmente. |
 | `zod` | 4.4.3 | 4.4.3 | 4.4.3 | Alto/major | ✅ Structured Outputs y validaciones verdes. |
 
@@ -206,7 +207,7 @@ Evidencia local del 2026-07-27:
   corte;
 - smoke test del artefacto compilado: `GET /` devolvió `200`;
 - `.env.example` documenta el fallback local y no contiene credenciales;
-- ninguna prueba utilizó credenciales ni proveedores remotos;
+- ninguna prueba automatizada utilizó credenciales ni proveedores remotos;
 - el segundo corte agregó tests HTTP de autenticación/ownership/modelos y un
   cliente OpenAI totalmente simulado. `npm test` pasa seis tests;
 - se repitieron `npm ci`, formato, lint, typecheck, build, smoke test de
@@ -291,7 +292,17 @@ Resultado local del 2026-07-27:
 - `db:migrate` aplicó `0003_auth_sessions.sql` únicamente a `local.db` y
   posteriormente `0004_auth_hardening.sql`; `db:migrate:verify` confirmó cuatro
   migraciones sin pendientes;
-- no se modificó Turso. La validación remota de staging permanece pendiente.
+- se creó `buildear-db-staging` como branch de producción y se verificaron por
+  lectura `0001`/`0002`, 9 tablas, 8 índices y 5 categorías;
+- `db:migrate:staging` aplicó `0003`/`0004` mediante el runner y
+  `db:migrate:staging:verify` confirmó cuatro checksums e integridad OK;
+- una lectura independiente verificó 10 tablas, 10 índices, las columnas de
+  rol/hash, `integrity_check = ok` y cero violaciones FK;
+- no se usó DDL manual y producción permaneció intacta;
+- el runner local confirmó cuatro migraciones e integridad OK; el smoke HTTP
+  validó inicio, live, readiness y autenticación requerida;
+- `.env.staging` está ignorado y los scripts dedicados cargan su URL/token sin
+  alterar la configuración local ni exponer credenciales.
 
 Resultado de seguridad local del 2026-07-27:
 
@@ -395,7 +406,8 @@ Acciones:
 - `openai` 6.49.0 y Zod 4.4.3 instalados con lockfile reproducible;
 - proveedor Responses inyectable en `services/openAI.ts`;
 - guía en `responses.parse` con `zodTextFormat` y validación posterior;
-- chat en `responses.create`, inicialmente de un turno;
+- chat en `responses.create` con `conversation_id` opcional, ownership y
+  contexto local de hasta 12 mensajes/12.000 caracteres;
 - `store: false` fijado en ambos flujos;
 - prompts versionados y entradas de guía tratadas como datos para reducir
   prompt injection;
@@ -403,7 +415,61 @@ Acciones:
   `ai_generations`;
 - incomplete outputs, refusals y errores de proveedor normalizados;
 - seis tests sin red ni credenciales, incluyendo integración HTTP y metadata;
-- faltan evals, proyecto de staging, canary y contexto conversacional acotado.
+- el prompt de chat quedó versionado como
+  `chat-responses-v2-context-window` y los tests cubren roles, límites,
+  deduplicación del mensaje actual y acceso cruzado;
+- el smoke real del 2026-07-27 completó `responses.create` y
+  `responses.parse` con `gpt-4o-mini-2024-07-18`, `store: false`, response IDs,
+  tokens, latencia, estado `completed` y una guía válida según el schema;
+- chat registró 57 tokens de entrada, 7 de salida y 1.695 ms; guía registró
+  271 tokens de entrada, 512 de salida y 6.653 ms;
+- después del smoke pasaron seis tests, typecheck, build, cuatro migraciones y
+  audit sin vulnerabilidades;
+- los smokes llamaron directamente a `ResponsesOpenAIService`, por lo que no
+  recorrieron `OpenAIModel`/`AiGenerationModel.record` ni escribieron metadata;
+- una lectura posterior confirmó cero filas en `ai_generations` tanto en
+  `buildear-db-staging` como en `buildear-db`;
+- luego se ejecutó el E2E faltante con Node 26.5.0 y la API apuntando sólo a
+  `buildear-db-staging`: registro `201`, login `200`, chat `200` y guía `200`;
+- Turso confirmó dos filas del usuario sintético ID 30. Chat registró
+  `gpt-5.4-mini-2026-03-17`, response ID, prompt
+  `chat-responses-v2-context-window`, 56/10 tokens, 1.450 ms y `completed`;
+  guía registró el mismo snapshot, response ID, prompt `guide-responses-v1`,
+  269/1.312 tokens, 10.645 ms y `completed`;
+- la sesión sintética fue revocada, el servidor detenido y producción quedó
+  verificada con cero filas de IA y sin el usuario de prueba;
+- una verificación funcional posterior confirmó cero conversaciones, cero
+  mensajes y cero `user_models` para ese usuario. Los endpoints actuales
+  persisten telemetría, no el contenido de chat ni la guía;
+- la comparación con el padre de `719b876` confirmó que los endpoints OpenAI
+  anteriores tampoco escribían esas tablas: el cliente debía coordinar
+  llamadas adicionales a `POST /userModels`, `conversations` y
+  `conversationMessages`;
+- los métodos de escritura y el esquema permanecen disponibles. La regresión
+  está en la integración/contrato del flujo modernizado, que no reemplazó esa
+  coordinación al probar los nuevos endpoints OpenAI; no requiere una nueva
+  migración SQL;
+- formato, lint, typecheck, build, seis tests, migraciones local/staging y audit
+  sin vulnerabilidades volvieron a pasar después del E2E;
+- faltan evals, separar el proyecto OpenAI de staging y realizar el canary.
+
+### Comparación real inicial de modelos — 2026-07-27
+
+- Se repitieron el mismo chat breve y la misma guía estructurada con
+  `gpt-5.4-mini`; el proveedor devolvió el snapshot
+  `gpt-5.4-mini-2026-03-17`.
+- Chat: estado `completed`, response ID presente, 56 tokens de entrada, 11 de
+  salida y 2.810 ms.
+- Guía: estado `completed`, response ID presente, schema válido, 269 tokens de
+  entrada, 1.112 de salida y 9.185 ms.
+- Contra la muestra anterior de `gpt-4o-mini`, `gpt-5.4-mini` fue 1,66 veces
+  más lento y 7,18 veces más costoso en chat; en guía fue 1,38 veces más lento
+  y 14,97 veces más costoso.
+- Esta comparación sólo demuestra compatibilidad, consumo y latencia. No alcanza
+  para afirmar mejor calidad: faltan casos representativos, graders de seguridad
+  y exactitud, repeticiones y límites de aceptación.
+- La comparación se ejecutó a nivel del servicio proveedor; no fue una prueba
+  HTTP/controlador/modelo y no persistió filas en Turso.
 
 ### Migración de la generación de guías
 
@@ -673,6 +739,23 @@ Además:
 - Verificar que `git diff -- package.json package-lock.json` sólo contenga cambios esperados.
 - Revisar licencias y tamaño del árbol con `npm ls --all`.
 
+Resultado operativo local del 2026-07-27:
+
+- `.github/workflows/ci.yml` fija Node 26.5.0 y npm desde el lockfile mediante
+  `npm ci`;
+- el job usa `file:ci.db` y no recibe secretos de Turso, OpenAI ni Cloudinary;
+- ejecuta formato, lint, typecheck, tests, build, aplicación/verificación de
+  migraciones y audit;
+- los endpoints están montados bajo `/api/v1` sin retirar todavía las rutas
+  legacy;
+- health/readiness, headers defensivos y shutdown están implementados y
+  cubiertos por la suite HTTP;
+- una instalación limpia y el smoke de `dist/` pasaron con Node 26.5.0; el
+  cierre evita `process.exit()` inmediato para permitir que libSQL drene sus
+  handles nativos;
+- queda pendiente verificar la primera ejecución alojada después de publicar
+  el workflow.
+
 ## Estrategia de commits y rollback
 
 Orden sugerido de commits:
@@ -711,10 +794,22 @@ Cada commit debe poder revertirse sin depender de commits posteriores, salvo cua
   verificados.
 - [ ] TypeScript 7 pasa el gate cuando typescript-eslint lo soporte.
 - [ ] `@libsql/client` soporta Turso y `file:` con migraciones.
-- [ ] Cloudinary no expone secretos y gestiona ciclo de vida de assets.
+- [ ] Cloudinary no expone secretos y gestiona el ciclo completo de todos los
+  assets. Modelos están cubiertos localmente; faltan perfiles, reintentos y
+  smoke test de staging.
 - [x] Chat Completions fue reemplazado por Responses.
 - [x] Assistants/Threads/Runs fueron reemplazados por Responses.
 - [x] Las guías usan Structured Outputs y `guideSchema`.
+- [x] La credencial local llega al proveedor y el error real de cuota `429` se
+  normaliza sin exponer secretos.
+- [x] Chat y guía completan llamadas reales con Responses y metadata devuelta
+  al servicio.
+- [x] Los endpoints autenticados de staging persisten y permiten verificar la
+  metadata real en `ai_generations`.
+- [ ] El chat persiste la conversación y ambos mensajes con ownership y
+  metadata del asistente.
+- [ ] La guía generada se asocia a un `model_id` y se persiste con su metadata,
+  o se define un recurso independiente.
 - [ ] El modelo OpenAI fue elegido mediante evals, no sólo por ser el más nuevo.
 - [ ] Staging y producción tienen proyectos, límites de gasto y métricas separados.
 - [ ] Existe rollback documentado y ensayado.
