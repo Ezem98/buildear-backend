@@ -19,7 +19,7 @@ export class OpenAIController {
             )
         }
 
-        const { model_id: modelId, ...openAIInput } = validation.data
+        const { model_id: modelId } = validation.data
         const model = await ModelModel.getById(modelId)
         if (!model.successfully) {
             throw new AppError(
@@ -27,6 +27,25 @@ export class OpenAIController {
                 'MODEL_NOT_FOUND',
                 'No se encontró el modelo'
             )
+        }
+
+        const modelData = model.data
+        if (!modelData) {
+            throw new AppError(
+                404,
+                'MODEL_NOT_FOUND',
+                'No se encontró el modelo'
+            )
+        }
+
+        const openAIInput = {
+            modelCategory: Number(modelData.category_id),
+            modelName: String(modelData.name),
+            modelSize: {
+                width: Number(modelData.width),
+                height: Number(modelData.height),
+            },
+            experienceLevel: validation.data.experienceLevel,
         }
 
         const { successfully, message, data } =
@@ -69,7 +88,9 @@ export class OpenAIController {
             await OpenAIModel.responseMessage(
                 validation.data.message,
                 auth.userId,
-                validation.data.conversation_id
+                validation.data.conversation_id,
+                validation.data.model_id,
+                validation.data.current_step
             )
 
         if (!successfully) {

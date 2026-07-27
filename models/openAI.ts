@@ -153,12 +153,16 @@ export class OpenAIModel {
     static async responseMessage(
         message: string,
         userId: number,
-        conversationId?: number
+        conversationId?: number,
+        modelId?: number,
+        currentStep?: number
     ): Promise<IDBResponse<GeneratedChatFlow>> {
         const startedTurn = await OpenAIWorkflowModel.startChatTurn(
             userId,
             message,
-            conversationId
+            conversationId,
+            modelId,
+            currentStep
         )
         if (!startedTurn) {
             return {
@@ -171,7 +175,8 @@ export class OpenAIModel {
         try {
             result = await provider().respondToMessage(
                 message,
-                startedTurn.context
+                startedTurn.context,
+                startedTurn.constructionContext
             )
         } catch (error) {
             const failedTurn = await OpenAIWorkflowModel.failChatTurn(

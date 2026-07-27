@@ -1,5 +1,10 @@
 import type { Row } from '@libsql/client'
-import type { ChatContextMessage, OpenAIMetadata } from '../services/openAI.js'
+import { guideSchema } from '../schemas/guide.js'
+import type {
+    ChatConstructionContext,
+    ChatContextMessage,
+    OpenAIMetadata,
+} from '../services/openAI.js'
 import type { IGuide } from '../types/guide.js'
 import { db } from '../utils/consts.js'
 import { AiGenerationModel } from './aiGenerations.js'
@@ -12,6 +17,7 @@ export interface StartedChatTurn {
     conversation: Row
     userMessage: Row
     context: ChatContextMessage[]
+    constructionContext?: ChatConstructionContext
 }
 
 export interface FinishedChatTurn {
@@ -41,6 +47,37 @@ function contextFromRows(rows: Row[]): ChatContextMessage[] {
     }
 
     return selected.reverse()
+}
+
+function constructionContextFromRow(
+    row: Row | undefined,
+    requestedCurrentStep?: number
+): ChatConstructionContext | undefined {
+    if (!row?.guide || !row.model_id) return undefined
+
+    try {
+        const guide = guideSchema.safeParse(JSON.parse(String(row.guide)))
+        if (!guide.success) return undefined
+        const persistedCurrentStep = Math.max(1, Number(row.current_step) || 1)
+        const currentStep = guide.data.pasos.some(
+            (step) => step.paso === requestedCurrentStep
+        )
+            ? requestedCurrentStep!
+            : persistedCurrentStep
+
+        return {
+            modelId: Number(row.model_id),
+            modelCategory: Number(row.category_id),
+            modelName: String(row.model_name),
+            widthCentimeters: Number(row.width),
+            heightCentimeters: Number(row.height),
+            experienceLevel: Number(row.experience_level),
+            currentStep,
+            guide: guide.data,
+        }
+    } catch {
+        return undefined
+    }
 }
 
 export class OpenAIWorkflowModel {
@@ -161,7 +198,9 @@ export class OpenAIWorkflowModel {
     static async startChatTurn(
         userId: number,
         message: string,
-        conversationId?: number
+        conversationId?: number,
+        modelId?: number,
+        currentStep?: number
     ): Promise<StartedChatTurn | undefined> {
         const transaction = await db.transaction('write')
         try {
@@ -208,6 +247,30 @@ export class OpenAIWorkflowModel {
                     args: [id, CHAT_CONTEXT_MESSAGE_LIMIT],
                 })
             ).rows
+            const constructionContextRow =
+                modelId === undefined
+                    ? undefined
+                    : (
+                          await transaction.execute({
+                              sql: `
+                                  SELECT
+                                      um.model_id,
+                                      um.guide,
+                                      um.current_step,
+                                      m.name AS model_name,
+                                      m.category_id,
+                                      m.width,
+                                      m.height,
+                                      u.experience_level
+                                  FROM user_models um
+                                  JOIN models m ON m.id = um.model_id
+                                  JOIN users u ON u.id = um.user_id
+                                  WHERE um.user_id = ? AND um.model_id = ?
+                                  LIMIT 1
+                              `,
+                              args: [userId, modelId],
+                          })
+                      ).rows[0]
 
             const userMessage = (
                 await transaction.execute({
@@ -241,6 +304,10 @@ export class OpenAIWorkflowModel {
                 conversation,
                 userMessage,
                 context: contextFromRows(contextRows),
+                constructionContext: constructionContextFromRow(
+                    constructionContextRow,
+                    currentStep
+                ),
             }
         } catch (error) {
             await transaction.rollback()

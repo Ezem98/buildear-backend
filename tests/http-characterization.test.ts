@@ -655,9 +655,9 @@ test('protects users and owned resources without leaking credentials', async () 
         assert.deepEqual(
             generations.records.map((record) => record.prompt_version),
             [
-                'guide-responses-v1',
-                'chat-responses-v2-context-window',
-                'chat-responses-v2-context-window',
+                'guide-responses-v2-notebook',
+                'chat-responses-v3-guide-context',
+                'chat-responses-v3-guide-context',
             ]
         )
         assert.equal(generations.records[0].input_tokens, 100)
@@ -745,7 +745,7 @@ test('protects users and owned resources without leaking credentials', async () 
                 modelCategory: 3,
                 modelName: 'simulate-error',
                 modelSize: { width: 300, height: 240 },
-                experienceLevel: 1,
+                experienceLevel: 3,
             },
         })
         assert.equal(failedGuide.status, 502)
@@ -919,6 +919,23 @@ test('protects users and owned resources without leaking credentials', async () 
             { token: aliceToken }
         )
         assert.equal(conversationStillExists.status, 200)
+
+        const guideContextChat = await api(server.baseUrl, '/openAI/message', {
+            method: 'POST',
+            token: aliceToken,
+            body: {
+                model_id: seededModel.id,
+                current_step: 3,
+                message: 'inspect-guide-context',
+            },
+        })
+        assert.equal(guideContextChat.status, 200)
+        const guideContext = JSON.parse(guideContextChat.body.data)
+        assert.equal(guideContext.modelId, seededModel.id)
+        assert.equal(guideContext.modelCategory, 2)
+        assert.equal(guideContext.modelName, 'Modelo actualizado')
+        assert.equal(guideContext.guide.titulo, 'Guía HTTP simulada')
+        assert.equal(guideContext.currentStep, 3)
 
         const wrongCurrentPassword = await api(
             server.baseUrl,

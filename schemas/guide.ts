@@ -4,11 +4,11 @@ import { stepSchema } from './step.js'
 
 export const guideSchema = z
     .object({
-        titulo: z.string().min(1),
-        explicacion: z.string().min(1),
-        pasos: z.array(stepSchema),
-        materiales: z.array(materialsSchema),
-        tiempo_insumido: z.number().positive().int(),
+        titulo: z.string().trim().min(1).max(120),
+        explicacion: z.string().trim().min(1).max(500),
+        pasos: z.array(stepSchema).min(3).max(12),
+        materiales: z.array(materialsSchema).min(1).max(24),
+        tiempo_insumido: z.number().nonnegative().int(),
         costo: z.number().nonnegative(),
     })
     .strict()

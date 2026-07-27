@@ -11,8 +11,30 @@ import {
 const generatedGuide = {
     titulo: 'Guía simulada',
     explicacion: 'Respuesta local sin acceder a OpenAI',
-    pasos: [],
-    materiales: [],
+    pasos: [
+        {
+            paso: 1,
+            titulo: 'Preparar',
+            descripcion: 'Prepará el área y verificá que esté despejada.',
+        },
+        {
+            paso: 2,
+            titulo: 'Colocar',
+            descripcion: 'Colocá el componente y controlá su alineación.',
+        },
+        {
+            paso: 3,
+            titulo: 'Verificar',
+            descripcion: 'Revisá la terminación antes de dar por finalizado.',
+        },
+    ],
+    materiales: [
+        {
+            material: 'Componente',
+            cantidad: 'Según el modelo',
+            finalidad: 'Ejecutar la colocación indicada.',
+        },
+    ],
     tiempo_insumido: 30,
     costo: 20,
 }
@@ -88,9 +110,29 @@ test('uses Responses with structured output, store false and simulated telemetry
         )
     }
     const guidePayload = calls[0].payload as {
+        instructions?: string
+        input?: string
         text?: { format?: unknown }
     }
     assert.ok(guidePayload.text?.format)
+    assert.match(guidePayload.instructions ?? '', /No hagas preguntas/)
+    assert.match(guidePayload.instructions ?? '', /lista de pasos/)
+    assert.deepEqual(JSON.parse(guidePayload.input ?? '{}'), {
+        tarea: 'construir',
+        categoria: 'pared',
+        nombre: 'pared',
+        dimensiones: {
+            ancho_centimetros: 300,
+            alto_centimetros: 240,
+        },
+        experiencia: 'poca experiencia',
+        salida_interfaz: {
+            formato: 'lista de pasos tipo nota de cuaderno',
+            unidad_tiempo: 'minutos',
+            moneda_costo: 'USD',
+            precios_verificados_disponibles: false,
+        },
+    })
     const chatPayload = calls[1].payload as {
         input?: Array<{ role: string; content: string }>
     }
@@ -104,6 +146,59 @@ test('uses Responses with structured output, store false and simulated telemetry
     }
     assert.deepEqual(deduplicatedChatPayload.input, [
         { role: 'user', content: 'Mensaje ya guardado' },
+    ])
+})
+
+test('places persisted guide context before chat history without storing it', async () => {
+    const calls: unknown[] = []
+    const fakeClient = {
+        responses: {
+            create: async (payload: unknown) => {
+                calls.push(payload)
+                return {
+                    id: 'resp_context_test',
+                    model: 'chat-test-model',
+                    status: 'completed',
+                    output_text: 'Respuesta contextual',
+                    usage: { input_tokens: 20, output_tokens: 8 },
+                }
+            },
+        },
+    } as unknown as Pick<OpenAI, 'responses'>
+    const service = new ResponsesOpenAIService(fakeClient, {
+        guideModel: 'guide-test-model',
+        chatModel: 'chat-test-model',
+    })
+
+    await service.respondToMessage(
+        '¿Qué reviso en este paso?',
+        [{ role: 'assistant', content: 'Conversación previa' }],
+        {
+            modelId: 7,
+            modelCategory: Categories.Wall,
+            modelName: 'Pared de práctica',
+            widthCentimeters: 300,
+            heightCentimeters: 240,
+            experienceLevel: ExperienceLevel.BEGINNER,
+            currentStep: 2,
+            guide: generatedGuide,
+        }
+    )
+
+    const payload = calls[0] as {
+        store?: boolean
+        input?: Array<{ role: string; content: string }>
+    }
+    assert.equal(payload.store, false)
+    assert.equal(payload.input?.[0]?.role, 'developer')
+    const applicationContext = JSON.parse(payload.input?.[0]?.content ?? '{}')
+    assert.equal(applicationContext.modelo.id, 7)
+    assert.equal(applicationContext.modelo.categoria, 'pared')
+    assert.equal(applicationContext.paso_actual, 2)
+    assert.deepEqual(applicationContext.guia, generatedGuide)
+    assert.deepEqual(payload.input?.slice(1), [
+        { role: 'assistant', content: 'Conversación previa' },
+        { role: 'user', content: '¿Qué reviso en este paso?' },
     ])
 })
 

@@ -11,7 +11,7 @@ import { db } from '../../utils/consts.js'
 
 const fakeProvider: OpenAIProvider = {
     async generateGuide(input) {
-        if (input.modelName === 'simulate-error') {
+        if (input.experienceLevel === 3) {
             throw new OpenAIServiceError('OPENAI_PROVIDER_ERROR', {
                 model: 'guide-test-model',
                 promptVersion: GUIDE_PROMPT_VERSION,
@@ -24,8 +24,30 @@ const fakeProvider: OpenAIProvider = {
             data: {
                 titulo: 'Guía HTTP simulada',
                 explicacion: 'No utiliza red',
-                pasos: [],
-                materiales: [],
+                pasos: [
+                    {
+                        paso: 1,
+                        titulo: 'Preparar',
+                        descripcion: 'Prepará el área de trabajo.',
+                    },
+                    {
+                        paso: 2,
+                        titulo: 'Colocar',
+                        descripcion: 'Colocá el componente.',
+                    },
+                    {
+                        paso: 3,
+                        titulo: 'Verificar',
+                        descripcion: 'Verificá la terminación.',
+                    },
+                ],
+                materiales: [
+                    {
+                        material: 'Componente',
+                        cantidad: 'Según el modelo',
+                        finalidad: 'Completar la práctica.',
+                    },
+                ],
                 tiempo_insumido: 30,
                 costo: 20,
             },
@@ -40,7 +62,7 @@ const fakeProvider: OpenAIProvider = {
             },
         }
     },
-    async respondToMessage(message, context = []) {
+    async respondToMessage(message, context = [], constructionContext) {
         if (message === 'simulate-error') {
             throw new OpenAIServiceError('OPENAI_PROVIDER_ERROR', {
                 model: 'gpt-4o-mini',
@@ -54,7 +76,9 @@ const fakeProvider: OpenAIProvider = {
             data:
                 message === 'inspect-context'
                     ? JSON.stringify(context)
-                    : 'Respuesta HTTP simulada',
+                    : message === 'inspect-guide-context'
+                      ? JSON.stringify(constructionContext)
+                      : 'Respuesta HTTP simulada',
             metadata: {
                 responseId: 'resp_http_chat',
                 model: 'gpt-4o-mini',
