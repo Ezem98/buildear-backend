@@ -1,5 +1,5 @@
-import { IMaterial } from './material.ts'
-import { IStep } from './step.ts'
+import { IMaterial } from './material.js'
+import { IStep } from './step.js'
 
 export interface IGuide {
     titulo: string

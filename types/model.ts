@@ -1,4 +1,4 @@
-import { Position } from './position.ts'
+import { Position } from './position.js'
 
 export interface IModel {
     id?: number

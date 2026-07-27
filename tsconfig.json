@@ -1,8 +1,7 @@
 {
     "compilerOptions": {
-        "target": "es6",
+        "target": "ES2023",
         "module": "NodeNext",
-        "outDir": "./dist",
         "strict": true,
         "esModuleInterop": true,
         "skipLibCheck": true,
@@ -10,8 +9,25 @@
         "moduleResolution": "NodeNext",
         "forceConsistentCasingInFileNames": true,
         "allowImportingTsExtensions": true,
-        "noEmit": true
+        "noEmit": true,
+        "types": ["node"]
     },
-    "include": ["*.ts"],
-    "exclude": ["node_modules"]
+    "include": [
+        "index.ts",
+        "app.ts",
+        "controllers/**/*.ts",
+        "database/**/*.ts",
+        "enums/**/*.ts",
+        "errors/**/*.ts",
+        "middleware/**/*.ts",
+        "models/**/*.ts",
+        "routes/**/*.ts",
+        "schemas/**/*.ts",
+        "services/**/*.ts",
+        "scripts/**/*.ts",
+        "tests/**/*.ts",
+        "types/**/*.ts",
+        "utils/**/*.ts"
+    ],
+    "exclude": ["node_modules", "dist", "coverage", "palworld-discord-bot"]
 }

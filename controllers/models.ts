@@ -1,13 +1,49 @@
-import { Request, Response } from 'express'
-import { UploadedFile } from 'express-fileupload'
-import { ModelModel } from '../models/models.ts'
-import { validModelData, validPartialModelData } from '../schemas/models.ts'
+import type { Request, Response } from 'express'
+import type { UploadedFile } from 'express-fileupload'
+import { AppError } from '../errors/appError.js'
+import { assertOwnedUserId } from '../middleware/auth.js'
+import { ModelModel } from '../models/models.js'
+import { validModelData, validPartialModelData } from '../schemas/models.js'
+
+function optionalNumber(value: unknown): unknown {
+    return value === undefined ? undefined : Number(value)
+}
+
+function normalizedModelBody(request: Request) {
+    const { body, files } = request
+    const modelData = files?.modelData as UploadedFile | undefined
+    const modelImage = files?.modelImage as UploadedFile | undefined
+
+    return {
+        ...body,
+        data: modelData?.tempFilePath ?? body.data,
+        image: modelImage?.tempFilePath ?? body.image,
+        width: optionalNumber(body.width),
+        height: optionalNumber(body.height),
+        category_id: optionalNumber(body.category_id ?? body.categoryId),
+        difficulty_rating: optionalNumber(
+            body.difficulty_rating ?? body.difficultyRating
+        ),
+    }
+}
+
+function modelReadError(message: string): AppError {
+    if (message.toLowerCase().includes('not found')) {
+        return new AppError(404, 'MODEL_NOT_FOUND', 'No se encontró el modelo')
+    }
+
+    return new AppError(
+        500,
+        'MODEL_READ_FAILED',
+        'No se pudieron consultar los modelos'
+    )
+}
 
 export class ModelController {
     static async getAll(req: Request, res: Response) {
         const { successfully, message, data } = await ModelModel.getAll()
 
-        if (!successfully) return res.status(400).send({ message })
+        if (!successfully) throw modelReadError(message)
 
         res.json({ message, data })
     }
@@ -17,7 +53,7 @@ export class ModelController {
 
         const { successfully, message, data } = await ModelModel.getById(+id)
 
-        if (!successfully) return res.status(400).send({ message })
+        if (!successfully) throw modelReadError(message)
         return res.json({ message, data })
     }
 
@@ -27,7 +63,7 @@ export class ModelController {
         const { successfully, message, data } =
             await ModelModel.getByCategoryId(+categoryId)
 
-        if (!successfully) return res.status(400).send({ message })
+        if (!successfully) throw modelReadError(message)
         return res.json({ message, data })
     }
 
@@ -35,94 +71,109 @@ export class ModelController {
         const { search } = req.params
 
         const { successfully, message, data } = await ModelModel.getByName(
-            search
+            String(search)
         )
 
-        if (!successfully)
-            return res.status(400).send({ successfully, message })
+        if (!successfully) throw modelReadError(message)
         return res.json({ successfully, message, data })
     }
 
     static async getByUserId(req: Request, res: Response) {
-        const { userId } = req.params
+        const userId = assertOwnedUserId(req, req.params.userId)
 
         const { successfully, message, data } = await ModelModel.getByUserId(
-            userId
+            String(userId)
         )
 
-        if (!successfully)
-            return res.status(400).send({ successfully, message })
+        if (!successfully) throw modelReadError(message)
         return res.json({ successfully, message, data })
     }
 
     static async getFavorites(req: Request, res: Response) {
-        const { userId } = req.params
+        const userId = assertOwnedUserId(req, req.params.userId)
 
         const { successfully, message, data } = await ModelModel.getFavorites(
-            userId
+            String(userId)
         )
 
-        if (!successfully)
-            return res.status(400).send({ successfully, message })
+        if (!successfully) throw modelReadError(message)
         return res.json({ successfully, message, data })
     }
 
     static async create(req: Request, res: Response) {
-        const { body, files } = req
+        const { files } = req
         if (!files || Object.keys(files).length === 0)
-            return res.status(400).send('No se encontró ningún archivo')
+            throw new AppError(
+                400,
+                'MODEL_FILE_REQUIRED',
+                'No se encontró ningún archivo'
+            )
 
-        const imageToUpload = files?.modelImage as UploadedFile // Campo de archivo
+        const validationResult = validModelData(normalizedModelBody(req))
 
-        const validationResult = validModelData({
-            ...body,
-            data: '',
-            width: +body.width,
-            height: +body.height,
-            image: imageToUpload.tempFilePath,
-            category_id: +body.categoryId,
-            difficulty_rating: +body.difficultyRating,
-        })
-
-        if (validationResult.error)
-            return res
-                .status(400)
-                .json({ error: JSON.parse(validationResult.error.message) })
+        if (!validationResult.success)
+            throw new AppError(
+                400,
+                'VALIDATION_ERROR',
+                'Los datos del modelo son inválidos',
+                validationResult.error.issues
+            )
 
         const { successfully, message, data } = await ModelModel.create(
             validationResult.data
         )
 
-        if (!successfully) return res.status(400).send({ message })
+        if (!successfully)
+            throw new AppError(
+                500,
+                'MODEL_CREATE_FAILED',
+                'No se pudo crear el modelo'
+            )
 
         return res.status(201).json({ message, data })
     }
 
     static async update(req: Request, res: Response) {
-        const { body } = req
         const { id } = req.params
-        const validationResult = validPartialModelData(body)
+        const validationResult = validPartialModelData(normalizedModelBody(req))
 
-        if (validationResult.error)
-            return res
-                .status(400)
-                .json({ error: JSON.parse(validationResult.error.message) })
+        if (!validationResult.success)
+            throw new AppError(
+                400,
+                'VALIDATION_ERROR',
+                'Los datos del modelo son inválidos',
+                validationResult.error.issues
+            )
 
         const { successfully, message, data } = await ModelModel.update(
             +id,
             validationResult.data
         )
 
-        if (!successfully) return res.status(400).send({ message })
+        if (!successfully)
+            throw new AppError(
+                message === 'Model not found' ? 404 : 400,
+                message === 'Model not found'
+                    ? 'MODEL_NOT_FOUND'
+                    : 'MODEL_UPDATE_FAILED',
+                message === 'Model not found'
+                    ? 'No se encontró el modelo'
+                    : 'No se pudo actualizar el modelo'
+            )
 
-        return res.status(201).json({ message, data })
+        return res.json({ message, data })
     }
 
     static async delete(req: Request, res: Response) {
         const { id } = req.params
 
         const { successfully, message } = await ModelModel.delete(+id)
-        if (!successfully) return res.status(400).send({ message })
+        if (!successfully)
+            throw new AppError(
+                500,
+                'MODEL_DELETE_FAILED',
+                'No se pudo eliminar el modelo'
+            )
         return res.send({ message })
     }
 }

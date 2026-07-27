@@ -1,89 +1,138 @@
-import { Request, Response } from 'express'
-import { UserModel } from '../models/users.ts'
+import type { Request, Response } from 'express'
+import { AppError } from '../errors/appError.js'
+import { assertOwnedUsername, authenticatedUser } from '../middleware/auth.js'
+import { AuthSessionModel } from '../models/authSessions.js'
+import { UserModel } from '../models/users.js'
 import {
     validPartialUserData,
     validUpdatePasswordData,
     validUserData,
-} from '../schemas/users.ts'
-import { debug } from 'console'
+} from '../schemas/users.js'
+
+function conflictError(error: unknown): never {
+    if (
+        error instanceof Error &&
+        /UNIQUE constraint failed/i.test(error.message)
+    ) {
+        throw new AppError(
+            409,
+            'USER_CONFLICT',
+            'El username o email ya está registrado'
+        )
+    }
+    throw error
+}
 
 export class UserController {
-    static async getAll(req: Request, res: Response) {
-        const { successfully, message, data: users } = await UserModel.getAll()
-
-        if (!successfully) return res.status(400).send({ message })
-
-        res.json({ message, users })
+    static async getAll(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const user = await UserModel.getById(auth.userId)
+        return response.json({ data: user ? [user] : [] })
     }
 
-    static async getByUsername(req: Request, res: Response) {
-        const { username } = req.params
-
-        const {
-            successfully,
-            message,
-            data: user,
-        } = await UserModel.getByUsername(username)
-
-        if (!successfully) return res.status(400).send({ message })
-        return res.json({ message, user })
+    static async getMe(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const user = await UserModel.getById(auth.userId)
+        if (!user) {
+            throw new AppError(404, 'USER_NOT_FOUND', 'Usuario no encontrado')
+        }
+        return response.json({ data: user })
     }
 
-    static async create(req: Request, res: Response) {
-        const { body } = req
-        const validationResult = validUserData(body)
-        if (validationResult.error)
-            return res.status(400).json({
-                successfully: false,
-                message: 'Revisar los datos ingresados',
-            })
-
-        const { successfully, message, data } = await UserModel.create(
-            validationResult.data
-        )
-
-        if (!successfully)
-            return res.status(400).send({ successfully, message })
-
-        return res.status(201).json({ successfully, message, data })
+    static async getByUsername(request: Request, response: Response) {
+        const username = assertOwnedUsername(request, request.params.username)
+        const user = await UserModel.getByUsername(username)
+        if (!user) {
+            throw new AppError(404, 'USER_NOT_FOUND', 'Usuario no encontrado')
+        }
+        return response.json({ data: user })
     }
 
-    static async update(req: Request, res: Response) {
-        const { body } = req
-
-        const { username: currentUserName } = req.params
-
-        if (body.newPassword) {
-            const passwordValidationResult = validUpdatePasswordData(body)
-
-            if (passwordValidationResult.error)
-                return res.status(400).json({
-                    error: JSON.parse(passwordValidationResult.error.message),
-                })
+    static async create(request: Request, response: Response) {
+        const validation = validUserData(request.body)
+        if (!validation.success) {
+            throw new AppError(
+                400,
+                'VALIDATION_ERROR',
+                'Revisá los datos ingresados',
+                validation.error.issues
+            )
         }
 
-        const validationResult = validPartialUserData(body)
-
-        if (validationResult.error)
-            return res
-                .status(400)
-                .json({ error: JSON.parse(validationResult.error.message) })
-
-        const { successfully, message, data } = await UserModel.update(
-            currentUserName,
-            validationResult.data
-        )
-
-        if (!successfully) return res.status(400).send({ message })
-
-        return res.status(201).json({ successfully, message, data })
+        try {
+            const user = await UserModel.create(validation.data)
+            return response.status(201).json({ data: user })
+        } catch (error) {
+            return conflictError(error)
+        }
     }
 
-    static async delete(req: Request, res: Response) {
-        const { username } = req.params
+    static async update(request: Request, response: Response) {
+        assertOwnedUsername(request, request.params.username)
+        const auth = authenticatedUser(request)
+        const validation = validPartialUserData(request.body)
 
-        const { successfully, message } = await UserModel.delete(username)
-        if (!successfully) return res.status(400).send({ message })
-        return res.send({ message })
+        if (!validation.success) {
+            throw new AppError(
+                400,
+                'VALIDATION_ERROR',
+                'Los datos de usuario son inválidos',
+                validation.error.issues
+            )
+        }
+
+        try {
+            const user = await UserModel.update(auth.userId, validation.data)
+            if (!user) {
+                throw new AppError(
+                    404,
+                    'USER_NOT_FOUND',
+                    'Usuario no encontrado'
+                )
+            }
+            return response.json({ data: user })
+        } catch (error) {
+            return conflictError(error)
+        }
+    }
+
+    static async changePassword(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const validation = validUpdatePasswordData(request.body)
+
+        if (!validation.success) {
+            throw new AppError(
+                400,
+                'VALIDATION_ERROR',
+                'Los datos de contraseña son inválidos',
+                validation.error.issues
+            )
+        }
+
+        const changed = await UserModel.changePassword(
+            auth.userId,
+            validation.data.password,
+            validation.data.newPassword
+        )
+        if (!changed) {
+            throw new AppError(
+                401,
+                'INVALID_CURRENT_PASSWORD',
+                'La contraseña actual es incorrecta'
+            )
+        }
+
+        await AuthSessionModel.revokeAllForUser(auth.userId)
+        return response.status(204).send()
+    }
+
+    static async delete(request: Request, response: Response) {
+        assertOwnedUsername(request, request.params.username)
+        const auth = authenticatedUser(request)
+        const deleted = await UserModel.delete(auth.userId)
+        if (!deleted) {
+            throw new AppError(404, 'USER_NOT_FOUND', 'Usuario no encontrado')
+        }
+        return response.status(204).send()
     }
 }

@@ -1,22 +1,50 @@
 import { Router } from 'express'
-import { ModelController } from '../controllers/models.ts'
+import { ModelController } from '../controllers/models.js'
+import { requireAdmin, requireAuth } from '../middleware/auth.js'
+import { asyncHandler } from '../middleware/asyncHandler.js'
 
 export const modelsRouter = Router()
 
-modelsRouter.get('/', ModelController.getAll)
+modelsRouter.get('/', asyncHandler(ModelController.getAll))
 
-modelsRouter.get('/:id', ModelController.getById)
+modelsRouter.get(
+    '/category/:categoryId',
+    asyncHandler(ModelController.getByCategoryId)
+)
 
-modelsRouter.get('/category/:categoryId', ModelController.getByCategoryId)
+modelsRouter.get('/search/:search', asyncHandler(ModelController.getByName))
 
-modelsRouter.get('/search/:search', ModelController.getByName)
+modelsRouter.get('/:id', asyncHandler(ModelController.getById))
 
-modelsRouter.get('/user/:userId', ModelController.getByUserId)
+modelsRouter.get(
+    '/user/:userId',
+    asyncHandler(requireAuth),
+    asyncHandler(ModelController.getByUserId)
+)
 
-modelsRouter.get('/favorite/:userId', ModelController.getFavorites)
+modelsRouter.get(
+    '/favorite/:userId',
+    asyncHandler(requireAuth),
+    asyncHandler(ModelController.getFavorites)
+)
 
-modelsRouter.post('/', ModelController.create)
+modelsRouter.post(
+    '/',
+    asyncHandler(requireAuth),
+    requireAdmin,
+    asyncHandler(ModelController.create)
+)
 
-modelsRouter.patch('/:id', ModelController.update)
+modelsRouter.patch(
+    '/:id',
+    asyncHandler(requireAuth),
+    requireAdmin,
+    asyncHandler(ModelController.update)
+)
 
-modelsRouter.delete('/:id', ModelController.delete)
+modelsRouter.delete(
+    '/:id',
+    asyncHandler(requireAuth),
+    requireAdmin,
+    asyncHandler(ModelController.delete)
+)

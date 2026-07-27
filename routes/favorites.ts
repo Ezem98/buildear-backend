@@ -1,10 +1,17 @@
 import { Router } from 'express'
-import { FavoriteController } from '../controllers/favorites.ts'
+import { FavoriteController } from '../controllers/favorites.js'
+import { requireAuth } from '../middleware/auth.js'
+import { asyncHandler } from '../middleware/asyncHandler.js'
 
 export const favoritesRouter = Router()
 
-favoritesRouter.post('/', FavoriteController.create)
+favoritesRouter.use(asyncHandler(requireAuth))
 
-favoritesRouter.get('/:userId/:modelId', FavoriteController.get)
+favoritesRouter.post('/', asyncHandler(FavoriteController.create))
 
-favoritesRouter.delete('/:userId/:modelId', FavoriteController.delete)
+favoritesRouter.get('/:userId/:modelId', asyncHandler(FavoriteController.get))
+
+favoritesRouter.delete(
+    '/:userId/:modelId',
+    asyncHandler(FavoriteController.delete)
+)

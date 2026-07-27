@@ -11,6 +11,10 @@ yarn-error.log*
 # Environment variables
 .env
 
+# Local database backups
+.backups/
+*.next.db
+
 # Production
 build/
 dist/

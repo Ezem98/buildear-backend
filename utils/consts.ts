@@ -1,5 +1,5 @@
-import { createClient } from '@libsql/client/web'
-import { ExperienceLevel } from '../enums/experienceLevel.ts'
+import { createDatabaseClient } from '../database/client.js'
+import { ExperienceLevel } from '../enums/experienceLevel.js'
 
 export const EXPERIENCE_LEVEL: Record<ExperienceLevel, string> = {
     [ExperienceLevel.BEGINNER]: 'poca experiencia',
@@ -13,7 +13,7 @@ const tursoConfig = {
     authToken: process.env.TURSO_AUTH_TOKEN,
 }
 
-export const db = createClient(tursoConfig)
+export const db = await createDatabaseClient(tursoConfig)
 
 // #region Cloudinary
 export const cloudinaryConfig = {

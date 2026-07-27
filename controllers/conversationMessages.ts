@@ -1,91 +1,111 @@
-import { Request, Response } from 'express'
-import { ConversationMessageModel } from '../models/conversationMessages.ts'
-import { ConversationModel } from '../models/conversations.ts'
+import type { Request, Response } from 'express'
+import { AppError } from '../errors/appError.js'
+import { authenticatedUser } from '../middleware/auth.js'
+import { ConversationMessageModel } from '../models/conversationMessages.js'
 import {
     validConversationMessageData,
     validConversationMessageListData,
-} from '../schemas/conversationMessage.ts'
+} from '../schemas/conversationMessage.js'
+
+function positiveId(value: unknown): number {
+    const id = Number(value)
+    if (!Number.isInteger(id) || id <= 0) {
+        throw new AppError(400, 'INVALID_ID', 'El identificador es inválido')
+    }
+    return id
+}
 
 export class ConversationMessageController {
-    static async create(req: Request, res: Response) {
-        const { body } = req
-        const validationResult = validConversationMessageData(body)
-
-        if (validationResult.error)
-            return res
-                .status(400)
-                .json({ error: JSON.parse(validationResult.error.message) })
-
-        const { successfully, message, data } =
-            await ConversationMessageModel.create(validationResult.data)
-
-        if (!successfully)
-            return res.status(400).send({ successfully, message })
-
-        return res.status(201).json({ successfully, message, data })
-    }
-
-    static async createAll(req: Request, res: Response) {
-        const { body } = req
-
-        const validationResult = validConversationMessageListData(body)
-
-        let successfullyAll = true
-
-        if (validationResult.error)
-            return res
-                .status(400)
-                .json({ error: JSON.parse(validationResult.error.message) })
-
-        for (const conversationMessage of validationResult.data.messages) {
-            const { successfully, message } =
-                await ConversationMessageModel.create(conversationMessage)
-
-            if (!successfully) {
-                successfullyAll = false
-                break
-            }
+    static async create(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const validation = validConversationMessageData(request.body)
+        if (!validation.success) {
+            throw new AppError(
+                400,
+                'VALIDATION_ERROR',
+                'Los datos del mensaje son inválidos',
+                validation.error.issues
+            )
         }
 
-        if (!successfullyAll)
-            return res.status(400).send({
-                successfully: successfullyAll,
-                message: 'Error creating conversation messages',
-            })
-
-        return res.status(201).json({
-            successfully: successfullyAll,
-            message: 'Conversation messages created',
-            data: [...validationResult.data.messages],
-        })
-    }
-
-    static async get(req: Request, res: Response) {
-        const { id } = req.params
-
-        const { successfully, message, data } =
-            await ConversationMessageModel.get(+id)
-
-        return res.status(201).json({ successfully, message, data })
-    }
-
-    static async getAllByConversationId(req: Request, res: Response) {
-        const { conversationId } = req.params
-
-        const { successfully, message, data } =
-            await ConversationMessageModel.getAllByConversationId(
-                +conversationId
+        const message = await ConversationMessageModel.create(
+            validation.data,
+            auth.userId
+        )
+        if (!message) {
+            throw new AppError(
+                404,
+                'CONVERSATION_NOT_FOUND',
+                'Conversación no encontrada'
             )
-
-        return res.status(201).json({ successfully, message, data })
+        }
+        return response.status(201).json({ data: message })
     }
 
-    static async delete(req: Request, res: Response) {
-        const { id } = req.params
+    static async createAll(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const validation = validConversationMessageListData(request.body)
+        if (!validation.success) {
+            throw new AppError(
+                400,
+                'VALIDATION_ERROR',
+                'La lista de mensajes es inválida',
+                validation.error.issues
+            )
+        }
 
-        const { successfully, message } = await ConversationModel.delete(+id)
-        if (!successfully)
-            return res.status(400).send({ successfully, message })
-        return res.send({ successfully, message })
+        const messages = await ConversationMessageModel.createAll(
+            validation.data.messages,
+            auth.userId
+        )
+        if (!messages) {
+            throw new AppError(
+                404,
+                'CONVERSATION_NOT_FOUND',
+                'Conversación no encontrada'
+            )
+        }
+        return response.status(201).json({ data: messages })
+    }
+
+    static async get(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const message = await ConversationMessageModel.get(
+            positiveId(request.params.id),
+            auth.userId
+        )
+        if (!message) {
+            throw new AppError(
+                404,
+                'MESSAGE_NOT_FOUND',
+                'Mensaje no encontrado'
+            )
+        }
+        return response.json({ data: message })
+    }
+
+    static async getAllByConversationId(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const messages = await ConversationMessageModel.getAllByConversationId(
+            positiveId(request.params.conversationId),
+            auth.userId
+        )
+        return response.json({ data: messages })
+    }
+
+    static async delete(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const deleted = await ConversationMessageModel.delete(
+            positiveId(request.params.id),
+            auth.userId
+        )
+        if (!deleted) {
+            throw new AppError(
+                404,
+                'MESSAGE_NOT_FOUND',
+                'Mensaje no encontrado'
+            )
+        }
+        return response.status(204).send()
     }
 }

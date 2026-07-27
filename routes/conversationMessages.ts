@@ -1,15 +1,31 @@
 import { Router } from 'express'
-import { ConversationMessageController } from '../controllers/conversationMessages.ts'
+import { ConversationMessageController } from '../controllers/conversationMessages.js'
+import { requireAuth } from '../middleware/auth.js'
+import { asyncHandler } from '../middleware/asyncHandler.js'
 
 export const conversationMessageRouter = Router()
 
-conversationMessageRouter.post('/', ConversationMessageController.create)
-conversationMessageRouter.post('/all', ConversationMessageController.createAll)
+conversationMessageRouter.use(asyncHandler(requireAuth))
 
-conversationMessageRouter.get('/:id', ConversationMessageController.get)
-conversationMessageRouter.get(
-    '/conversation/:conversationId',
-    ConversationMessageController.getAllByConversationId
+conversationMessageRouter.post(
+    '/',
+    asyncHandler(ConversationMessageController.create)
+)
+conversationMessageRouter.post(
+    '/all',
+    asyncHandler(ConversationMessageController.createAll)
 )
 
-conversationMessageRouter.delete('/:id', ConversationMessageController.delete)
+conversationMessageRouter.get(
+    '/conversation/:conversationId',
+    asyncHandler(ConversationMessageController.getAllByConversationId)
+)
+conversationMessageRouter.get(
+    '/:id',
+    asyncHandler(ConversationMessageController.get)
+)
+
+conversationMessageRouter.delete(
+    '/:id',
+    asyncHandler(ConversationMessageController.delete)
+)

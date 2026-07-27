@@ -1,4 +1,6 @@
-import { ExperienceLevel } from '../enums/experienceLevel.ts'
+import { ExperienceLevel } from '../enums/experienceLevel.js'
+
+export type UserRole = 'user' | 'admin'
 
 export interface IUser {
     id?: number
@@ -11,12 +13,41 @@ export interface IUser {
     experience_level: ExperienceLevel
     image?: string
     completed_profile: number
+    role?: UserRole
     created_at?: string
     updated_at?: string
 }
 
-export interface IUpdateUser
-    extends Omit<IUser, 'id' | 'name' | 'surname' | 'password'> {
-    password?: string
-    newPassword?: string
+export interface PublicUser {
+    id: number
+    name: string
+    surname: string
+    username: string
+    email: string
+    experience_level: ExperienceLevel | null
+    image: string | null
+    completed_profile: number
+    role: UserRole
+    created_at: string
+    updated_at: string
+}
+
+export interface UserCredentials extends PublicUser {
+    password: string
+    password_salt: string
+    password_algorithm: string
+    password_params: string
+}
+
+export interface IUpdateUser {
+    username?: string
+    email?: string
+    image?: string
+    experience_level?: ExperienceLevel
+    completed_profile?: number
+}
+
+export interface IUpdatePassword {
+    password: string
+    newPassword: string
 }

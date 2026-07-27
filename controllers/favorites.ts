@@ -1,43 +1,64 @@
-import { Request, Response } from 'express'
-import { FavoriteModel } from '../models/favorites.ts'
-import { validFavoriteData } from '../schemas/favorites.ts'
+import type { Request, Response } from 'express'
+import { AppError } from '../errors/appError.js'
+import { assertOwnedUserId } from '../middleware/auth.js'
+import { FavoriteModel } from '../models/favorites.js'
+import { validFavoriteData } from '../schemas/favorites.js'
 
 export class FavoriteController {
     static async create(req: Request, res: Response) {
-        const { body } = req
-        const validationResult = validFavoriteData(body)
+        const validationResult = validFavoriteData(req.body)
 
-        if (validationResult.error)
-            return res
-                .status(400)
-                .json({ error: JSON.parse(validationResult.error.message) })
+        if (!validationResult.success)
+            throw new AppError(
+                400,
+                'VALIDATION_ERROR',
+                'Los datos del favorito son inválidos',
+                validationResult.error.issues
+            )
 
-        const { successfully, message, data } = await FavoriteModel.create(
+        assertOwnedUserId(req, validationResult.data.user_id)
+
+        const { successfully, data } = await FavoriteModel.create(
             validationResult.data
         )
 
         if (!successfully)
-            return res.status(400).send({ successfully, message })
+            throw new AppError(
+                409,
+                'FAVORITE_CREATE_FAILED',
+                'No se pudo crear el favorito'
+            )
 
-        return res.status(201).json({ successfully, message, data })
+        return res.status(201).json({
+            successfully,
+            message: 'Favorite created',
+            data,
+        })
     }
 
     static async get(req: Request, res: Response) {
-        const { userId, modelId } = req.params
+        const { modelId } = req.params
+        const userId = assertOwnedUserId(req, req.params.userId)
 
-        const isFav = await FavoriteModel.get(+userId, +modelId)
+        const isFav = await FavoriteModel.get(userId, +modelId)
 
-        return res.status(201).send(isFav)
+        return res.json({ data: isFav })
     }
 
     static async delete(req: Request, res: Response) {
-        const { userId, modelId } = req.params
+        const { modelId } = req.params
+        const userId = assertOwnedUserId(req, req.params.userId)
 
-        const { successfully, message } = await FavoriteModel.delete(
-            userId,
-            modelId
+        const { successfully } = await FavoriteModel.delete(
+            String(userId),
+            String(modelId)
         )
-        if (!successfully) return res.status(400).send({ message })
-        return res.send({ message })
+        if (!successfully)
+            throw new AppError(
+                500,
+                'FAVORITE_DELETE_FAILED',
+                'No se pudo eliminar el favorito'
+            )
+        return res.status(204).send()
     }
 }

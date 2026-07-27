@@ -1,6 +1,6 @@
-import { IModel } from '../types/model.ts'
-import { db } from '../utils/consts.ts'
-import { CloudinaryModel } from './cloudinary.ts'
+import { IModel } from '../types/model.js'
+import { db } from '../utils/consts.js'
+import { CloudinaryModel } from './cloudinary.js'
 
 export class ModelModel {
     static async getAll() {
@@ -174,46 +174,33 @@ export class ModelModel {
                 'modelsImages'
             )
 
-            await db.batch(
-                [
-                    `
-                            CREATE TABLE IF NOT EXISTS models (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                name TEXT NOT NULL,
-                                description TEXT,
-                                model_data TEXT NOT NULL,
-                                model_image TEXT NOT NULL,
-                                difficulty_rating INTEGER NOT NULL,
-                                category_id INTEGER NOT NULL,
-                                height INTEGER NOT NULL,
-                                width INTEGER NOT NULL,
-                                position TEXT NOT NULL,
-                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                                FOREIGN KEY (category_id) REFERENCES categories(id)
-                            );
-                        `,
-                    {
-                        sql: `
-                            INSERT INTO models (name, description, model_data, model_image, difficulty_rating, category_id, height, width, position) VALUES
-                            (?, ?, ?, ?, ?, ?, ?, ?, ?);
-                        `,
-                        args: [
-                            name,
-                            description ?? null,
-                            '',
-                            imageUrl,
-                            difficulty_rating ?? null,
-                            category_id,
-                            height,
-                            width,
-                            position,
-                        ],
-                    },
+            await db.execute({
+                sql: `
+                    INSERT INTO models (
+                        name,
+                        description,
+                        model_data,
+                        model_image,
+                        difficulty_rating,
+                        category_id,
+                        height,
+                        width,
+                        position
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                `,
+                args: [
+                    name,
+                    description ?? null,
+                    '',
+                    imageUrl,
+                    difficulty_rating ?? null,
+                    category_id,
+                    height,
+                    width,
+                    position,
                 ],
-
-                'write'
-            )
+            })
 
             const model = (
                 await db.execute({
@@ -233,25 +220,6 @@ export class ModelModel {
     }
 
     static async update(id: number, partialModel: Partial<IModel>) {
-        const { name, description, data, image, difficulty_rating } =
-            partialModel
-
-        let modelDataUrl: string | undefined, imageUrl: string | undefined
-
-        if (data)
-            modelDataUrl = await CloudinaryModel.uploadImage(
-                data,
-                `${name}-model-data`,
-                'modelsData'
-            )
-
-        if (image)
-            imageUrl = await CloudinaryModel.uploadImage(
-                image,
-                `${name}-model-image`,
-                'modelsImages'
-            )
-
         try {
             const currentModel = (
                 await db.execute({
@@ -260,29 +228,68 @@ export class ModelModel {
                 })
             ).rows[0]
 
-            await db.batch(
-                [
-                    {
-                        sql: `UPDATE models
-                        SET name = ?,
-                            description = ?,
-                            data = ?,
-                            image = ?,
-                            difficulty_rating = ?
-                        WHERE
-                            id = ?;`,
-                        args: [
-                            name ?? currentModel.model,
-                            description ?? currentModel.description,
-                            modelDataUrl ?? currentModel.data,
-                            imageUrl ?? currentModel.image,
-                            difficulty_rating ?? currentModel.difficultyRating,
-                            id,
-                        ],
-                    },
+            if (!currentModel)
+                return {
+                    successfully: false,
+                    message: 'Model not found',
+                }
+
+            const {
+                name,
+                description,
+                data,
+                image,
+                difficulty_rating,
+                category_id,
+                height,
+                width,
+                position,
+            } = partialModel
+            const assetName = name ?? String(currentModel.name)
+            const modelDataUrl = data
+                ? await CloudinaryModel.uploadImage(
+                      data,
+                      `${assetName}-model-data`,
+                      'modelsData'
+                  )
+                : undefined
+            const imageUrl = image
+                ? await CloudinaryModel.uploadImage(
+                      image,
+                      `${assetName}-model-image`,
+                      'modelsImages'
+                  )
+                : undefined
+
+            await db.execute({
+                sql: `
+                    UPDATE models
+                    SET
+                        name = ?,
+                        description = ?,
+                        model_data = ?,
+                        model_image = ?,
+                        difficulty_rating = ?,
+                        category_id = ?,
+                        height = ?,
+                        width = ?,
+                        position = ?,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ?
+                `,
+                args: [
+                    name ?? currentModel.name,
+                    description ?? currentModel.description,
+                    modelDataUrl ?? currentModel.model_data,
+                    imageUrl ?? currentModel.model_image,
+                    difficulty_rating ?? currentModel.difficulty_rating,
+                    category_id ?? currentModel.category_id,
+                    height ?? currentModel.height,
+                    width ?? currentModel.width,
+                    position ?? currentModel.position,
+                    id,
                 ],
-                'write'
-            )
+            })
 
             const updatedModel = (
                 await db.execute({

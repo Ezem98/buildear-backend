@@ -1,4 +1,4 @@
-import { IGuide } from '../types/guide.ts'
+import { IGuide } from '../types/guide.js'
 
 export interface IUserModel {
     id?: number

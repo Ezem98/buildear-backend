@@ -1,44 +1,48 @@
-import { Request, Response } from 'express'
-import { ExperienceLevel } from '../enums/experienceLevel.ts'
-import { AuthModel } from '../models/auth.ts'
-import { UserModel } from '../models/users.ts'
-import { GoogleUser } from '../types/googleUser.ts'
-import { IUser } from '../types/user.ts'
+import type { Request, Response } from 'express'
+import { AppError } from '../errors/appError.js'
+import { authenticatedUser } from '../middleware/auth.js'
+import { AuthModel } from '../models/auth.js'
+import { AuthSessionModel } from '../models/authSessions.js'
+import { loginSchema } from '../schemas/auth.js'
 
 export class AuthController {
-    static async login(req: Request, res: Response) {
-        const { username, password } = req.body
-
-        const { successfully, message, data } = await AuthModel.login(
-            username,
-            password
-        )
-
-        if (!successfully)
-            return res.status(400).send({ successfully, message })
-
-        res.json({ successfully, message, data })
-    }
-
-    static async google(req: Request, res: Response) {
-        const user = req.user as GoogleUser
-
-        const newUser: IUser = {
-            name: user.name.givenName,
-            surname: user.name.familyName,
-            username: `${user.name.givenName.toLowerCase()}.${user.name.familyName.toLowerCase()}`,
-            email: user?.emails?.[0].value ?? '',
-            password: '',
-            password_salt: '',
-            experience_level: ExperienceLevel.BEGINNER,
-            completed_profile: 0,
+    static async login(request: Request, response: Response) {
+        const validation = loginSchema.safeParse(request.body)
+        if (!validation.success) {
+            throw new AppError(
+                400,
+                'VALIDATION_ERROR',
+                'Los datos de login son inválidos',
+                validation.error.issues
+            )
         }
 
-        const { successfully, message, data } = await UserModel.create(newUser)
+        const user = await AuthModel.login(
+            validation.data.username,
+            validation.data.password
+        )
+        if (!user) {
+            throw new AppError(
+                401,
+                'INVALID_CREDENTIALS',
+                'Usuario o contraseña incorrectos'
+            )
+        }
 
-        if (!successfully)
-            return res.status(400).send({ successfully, message })
+        const session = await AuthSessionModel.create(user.id)
+        return response.json({
+            data: {
+                user,
+                access_token: session.token,
+                token_type: 'Bearer',
+                expires_at: session.expiresAt,
+            },
+        })
+    }
 
-        res.json({ successfully, message, data })
+    static async logout(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        await AuthSessionModel.revoke(auth.token)
+        return response.status(204).send()
     }
 }

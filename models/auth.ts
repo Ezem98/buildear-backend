@@ -1,37 +1,37 @@
-import { UserModel } from '../models/users.ts'
-import { validPassword } from '../utils/functions.ts'
+import type { PublicUser } from '../types/user.js'
+import { passwordNeedsRehash, validPassword } from '../utils/functions.js'
+import { UserModel } from './users.js'
 
 export class AuthModel {
-    static async login(username: string, password: string) {
-        try {
-            const { data: user } = await UserModel.getByUsername(username)
+    static async login(
+        username: string,
+        password: string
+    ): Promise<PublicUser | undefined> {
+        const user = await UserModel.getCredentialsByUsername(username)
+        if (!user) return undefined
 
-            if (!user)
-                return {
-                    successfully: false,
-                    message: 'Usuario no encontrado',
-                }
+        const valid = await validPassword(
+            password,
+            user.password,
+            user.password_salt,
+            user.password_algorithm,
+            user.password_params
+        )
+        if (!valid) return undefined
 
-            const valid = validPassword(
-                password,
-                user.password as string,
-                user.password_salt as string
-            )
-
-            if (valid)
-                return {
-                    successfully: true,
-                    message: 'Usuario logueado correctamente',
-                    data: user,
-                }
-
-            return {
-                successfully: false,
-                message:
-                    'Fallo en la autenticación. Usuario y/o contraseña incorrectos',
-            }
-        } catch (error: any) {
-            return { successfully: false, message: error.message }
+        if (
+            passwordNeedsRehash(user.password_algorithm, user.password_params)
+        ) {
+            await UserModel.replacePasswordHash(user.id, password)
         }
+
+        const {
+            password: _password,
+            password_salt: _salt,
+            password_algorithm: _algorithm,
+            password_params: _params,
+            ...publicUser
+        } = user
+        return publicUser
     }
 }

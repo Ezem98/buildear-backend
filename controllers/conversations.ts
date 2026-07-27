@@ -1,51 +1,72 @@
-import { Request, Response } from 'express'
-import { ConversationModel } from '../models/conversations.ts'
-import { validConversationData } from '../schemas/conversation.ts'
+import type { Request, Response } from 'express'
+import { AppError } from '../errors/appError.js'
+import { assertOwnedUserId, authenticatedUser } from '../middleware/auth.js'
+import { ConversationModel } from '../models/conversations.js'
+import { validConversationData } from '../schemas/conversation.js'
+
+function positiveId(value: unknown): number {
+    const id = Number(value)
+    if (!Number.isInteger(id) || id <= 0) {
+        throw new AppError(400, 'INVALID_ID', 'El identificador es inválido')
+    }
+    return id
+}
 
 export class ConversationController {
-    static async create(req: Request, res: Response) {
-        const { body } = req
+    static async create(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const validation = validConversationData(request.body)
+        if (!validation.success) {
+            throw new AppError(
+                400,
+                'VALIDATION_ERROR',
+                'Los datos de conversación son inválidos',
+                validation.error.issues
+            )
+        }
+        if (validation.data.user_id !== undefined) {
+            assertOwnedUserId(request, validation.data.user_id)
+        }
 
-        const validationResult = validConversationData(body)
+        const conversation = await ConversationModel.create(auth.userId)
+        return response.status(201).json({ data: conversation })
+    }
 
-        if (validationResult.error)
-            return res
-                .status(400)
-                .json({ error: JSON.parse(validationResult.error.message) })
-
-        const { successfully, message, data } = await ConversationModel.create(
-            validationResult.data
+    static async get(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const conversation = await ConversationModel.get(
+            positiveId(request.params.id),
+            auth.userId
         )
-
-        if (!successfully)
-            return res.status(400).send({ successfully, message })
-
-        return res.status(201).json({ successfully, message, data })
+        if (!conversation) {
+            throw new AppError(
+                404,
+                'CONVERSATION_NOT_FOUND',
+                'Conversación no encontrada'
+            )
+        }
+        return response.json({ data: conversation })
     }
 
-    static async get(req: Request, res: Response) {
-        const { id } = req.params
-
-        const { successfully, message, data } = await ConversationModel.get(+id)
-
-        return res.status(201).json({ successfully, message, data })
+    static async getAllByUserId(request: Request, response: Response) {
+        const userId = assertOwnedUserId(request, request.params.userId)
+        const conversations = await ConversationModel.getAllByUserId(userId)
+        return response.json({ data: conversations })
     }
 
-    static async getAllByUserId(req: Request, res: Response) {
-        const { userId } = req.params
-
-        const { successfully, message, data } =
-            await ConversationModel.getAllByUserId(+userId)
-
-        return res.status(201).json({ successfully, message, data })
-    }
-
-    static async delete(req: Request, res: Response) {
-        const { id } = req.params
-
-        const { successfully, message } = await ConversationModel.delete(+id)
-        if (!successfully)
-            return res.status(400).send({ successfully, message })
-        return res.send({ successfully, message })
+    static async delete(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const deleted = await ConversationModel.delete(
+            positiveId(request.params.id),
+            auth.userId
+        )
+        if (!deleted) {
+            throw new AppError(
+                404,
+                'CONVERSATION_NOT_FOUND',
+                'Conversación no encontrada'
+            )
+        }
+        return response.status(204).send()
     }
 }

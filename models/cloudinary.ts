@@ -1,5 +1,5 @@
 import { v2 as cloudinary } from 'cloudinary'
-import { cloudinaryConfig } from '../utils/consts.ts'
+import { cloudinaryConfig } from '../utils/consts.js'
 
 cloudinary.config(cloudinaryConfig)
 export class CloudinaryModel {

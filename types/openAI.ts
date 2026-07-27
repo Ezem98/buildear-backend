@@ -1,5 +1,5 @@
-import { Categories } from '../enums/categories.ts'
-import { ExperienceLevel } from '../enums/experienceLevel.ts'
+import { Categories } from '../enums/categories.js'
+import { ExperienceLevel } from '../enums/experienceLevel.js'
 
 export interface IOpenAI {
     modelCategory: Categories

@@ -1,36 +1,18 @@
-import { IFavorite } from '../types/favorite.ts'
-import { db } from '../utils/consts.ts'
+import { IFavorite } from '../types/favorite.js'
+import { db } from '../utils/consts.js'
 
 export class FavoriteModel {
     static async create(newFavorite: IFavorite) {
         try {
             const { user_id, model_id } = newFavorite
 
-            await db.batch(
-                [
-                    `
-                            CREATE TABLE IF NOT EXISTS favorites (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                user_id INTEGER NOT NULL,
-                                model_id INTEGER NOT NULL,
-                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                                UNIQUE(user_id, model_id),
-                                FOREIGN KEY (user_id) REFERENCES users(id),
-                                FOREIGN KEY (model_id) REFERENCES models(id)
-                            );
-                        `,
-                    {
-                        sql: `
-                            INSERT INTO favorites (user_id, model_id) VALUES
-                            (?, ?);
-                        `,
-                        args: [user_id, model_id],
-                    },
-                ],
-
-                'write'
-            )
+            await db.execute({
+                sql: `
+                    INSERT INTO favorites (user_id, model_id)
+                    VALUES (?, ?)
+                `,
+                args: [user_id, model_id],
+            })
 
             const favorite = (
                 await db.execute({

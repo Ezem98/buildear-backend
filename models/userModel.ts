@@ -1,5 +1,5 @@
-import { IUserModel } from '../types/userModel.ts'
-import { db } from '../utils/consts.ts'
+import { IUserModel } from '../types/userModel.js'
+import { db } from '../utils/consts.js'
 
 export class UserModelModel {
     static async getAllByUserId(userId: number) {
@@ -36,12 +36,16 @@ export class UserModelModel {
         }
     }
 
-    static async getAllByModelId(modelId: number) {
+    static async getAllByModelId(modelId: number, userId: number) {
         try {
             const models = (
                 await db.execute({
-                    sql: 'SELECT * FROM user_models WHERE model_id = ?',
-                    args: [modelId],
+                    sql: `
+                        SELECT *
+                        FROM user_models
+                        WHERE model_id = ? AND user_id = ?
+                    `,
+                    args: [modelId, userId],
                 })
             ).rows
 
@@ -111,40 +115,25 @@ export class UserModelModel {
             const { user_id, model_id, completed, current_step, guide } =
                 newUserModel
 
-            await db.batch(
-                [
-                    `
-                            CREATE TABLE IF NOT EXISTS user_models (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                user_id INTEGER NOT NULL,
-                                model_id INTEGER NOT NULL,
-                                completed BOOLEAN DEFAULT FALSE,
-                                current_step INTEGER DEFAULT 0,
-                                guide TEXT NOT NULL,
-                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                                UNIQUE(user_id, model_id),
-                                FOREIGN KEY (user_id) REFERENCES users(id),
-                                FOREIGN KEY (model_id) REFERENCES models(id)
-                            );
-                        `,
-                    {
-                        sql: `
-                            INSERT INTO user_models (user_id, model_id, completed, current_step, guide) VALUES
-                            (?, ?, ?, ?, ?);
-                        `,
-                        args: [
-                            user_id,
-                            model_id,
-                            completed,
-                            current_step,
-                            JSON.stringify(guide),
-                        ],
-                    },
+            await db.execute({
+                sql: `
+                    INSERT INTO user_models (
+                        user_id,
+                        model_id,
+                        completed,
+                        current_step,
+                        guide
+                    )
+                    VALUES (?, ?, ?, ?, ?)
+                `,
+                args: [
+                    user_id,
+                    model_id,
+                    completed,
+                    current_step,
+                    JSON.stringify(guide),
                 ],
-
-                'write'
-            )
+            })
 
             const userModel = (
                 await db.execute({
@@ -163,39 +152,54 @@ export class UserModelModel {
         }
     }
 
-    static async update(id: number, partialUserModel: Partial<IUserModel>) {
+    static async update(
+        id: number,
+        userId: number,
+        partialUserModel: Partial<IUserModel>
+    ) {
         const { completed, current_step } = partialUserModel
 
         try {
             const currentUserModel = (
                 await db.execute({
-                    sql: 'SELECT * FROM user_models WHERE id = ?',
-                    args: [id],
+                    sql: `
+                        SELECT *
+                        FROM user_models
+                        WHERE id = ? AND user_id = ?
+                    `,
+                    args: [id, userId],
                 })
             ).rows[0]
 
-            await db.batch(
-                [
-                    {
-                        sql: `UPDATE user_models
+            if (!currentUserModel)
+                return {
+                    successfully: false,
+                    message: 'User Model not found',
+                }
+
+            await db.execute({
+                sql: `UPDATE user_models
                         SET completed = ?,
-                            current_step = ?
+                            current_step = ?,
+                            updated_at = CURRENT_TIMESTAMP
                         WHERE
-                            id = ?;`,
-                        args: [
-                            completed ?? currentUserModel.completed,
-                            current_step ?? currentUserModel.current_step,
-                            id,
-                        ],
-                    },
+                            id = ? AND user_id = ?`,
+                args: [
+                    completed ?? currentUserModel.completed,
+                    current_step ?? currentUserModel.current_step,
+                    id,
+                    userId,
                 ],
-                'write'
-            )
+            })
 
             const updatedUserModel = (
                 await db.execute({
-                    sql: 'SELECT * FROM user_models WHERE id = ?',
-                    args: [id],
+                    sql: `
+                        SELECT *
+                        FROM user_models
+                        WHERE id = ? AND user_id = ?
+                    `,
+                    args: [id, userId],
                 })
             ).rows[0]
 

@@ -1,4 +1,4 @@
-import { IConversationMessage } from './conversationMessage.ts'
+import { IConversationMessage } from './conversationMessage.js'
 
 export interface IConversationMessageList {
     messages: IConversationMessage[]

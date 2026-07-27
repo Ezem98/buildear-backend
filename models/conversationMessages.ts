@@ -1,122 +1,167 @@
-import { IConversationMessage } from '../types/conversationMessage.ts'
-import { db } from '../utils/consts.ts'
+import type { IConversationMessage } from '../types/conversationMessage.js'
+import { db } from '../utils/consts.js'
 
 export class ConversationMessageModel {
-    static async create(newConversationMessage: IConversationMessage) {
-        try {
-            const { conversation_id, message, sender } = newConversationMessage
+    static async create(newMessage: IConversationMessage, userId: number) {
+        const { conversation_id, message, sender } = newMessage
 
-            await db.batch(
-                [
-                    `
-                            CREATE TABLE IF NOT EXISTS conversation_messages (
-                                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                conversation_id INTEGER NOT NULL,
-                                message TEXT NOT NULL,
-                                sender TEXT NOT NULL,
-                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
-                                FOREIGN KEY (conversation_id) REFERENCES conversations(id)
-                            );
-                        `,
-                    {
-                        sql: `
-                            INSERT INTO conversation_messages (conversation_id, message, sender) VALUES
-                            (?, ?, ?);
-                        `,
-                        args: [conversation_id, message, sender],
-                    },
-                ],
-
-                'write'
-            )
-
-            const conversationMessage = (
-                await db.execute({
-                    sql: 'SELECT * FROM conversation_messages WHERE conversation_id = ? ORDER BY id DESC LIMIT 1',
-                    args: [conversation_id],
-                })
-            ).rows[0]
-
-            return {
-                successfully: true,
-                message: 'Conversation message created',
-                data: conversationMessage,
-            }
-        } catch (error: any) {
-            return { successfully: false, message: error.message }
-        }
-    }
-
-    static async get(id: number) {
-        try {
-            const conversationMessage = (
-                await db.execute({
-                    sql: `SELECT * FROM conversation_message WHERE id = ?`,
-                    args: [id],
-                })
-            ).rows[0]
-
-            if (!conversationMessage)
-                return {
-                    successfully: true,
-                    message: 'Conversation message not found',
-                }
-
-            return {
-                successfully: true,
-                message: 'Conversation message found',
-                data: conversationMessage,
-            }
-        } catch (error: any) {
-            return {
-                successfully: false,
-                message: 'Error getting conversation message',
-            }
-        }
-    }
-
-    static async getAllByConversationId(conversationId: number) {
-        try {
-            const conversationMessages = (
-                await db.execute({
-                    sql: `SELECT * FROM conversation_messages WHERE conversation_id = ? ORDER BY created_at ASC`,
-                    args: [conversationId],
-                })
-            ).rows
-
-            if (!conversationMessages)
-                return {
-                    successfully: true,
-                    message: 'Conversation messages not found',
-                }
-
-            return {
-                successfully: true,
-                message: 'Conversation messages found',
-                data: conversationMessages,
-            }
-        } catch (error: any) {
-            return {
-                successfully: false,
-                message: 'Error getting conversation messages',
-            }
-        }
-    }
-
-    static async delete(id: number) {
-        try {
+        const row = (
             await db.execute({
-                sql: 'DELETE FROM conversation_message WHERE id = ?',
-                args: [id],
+                sql: `
+                    INSERT INTO conversation_messages (
+                        conversation_id,
+                        message,
+                        sender
+                    )
+                    SELECT ?, ?, ?
+                    WHERE EXISTS (
+                        SELECT 1
+                        FROM conversations
+                        WHERE id = ? AND user_id = ?
+                    )
+                    RETURNING *
+                `,
+                args: [
+                    conversation_id,
+                    message,
+                    sender,
+                    conversation_id,
+                    userId,
+                ],
             })
+        ).rows[0]
 
-            return {
-                successfully: true,
-                message: 'Conversation message deleted',
-            }
-        } catch (error: any) {
-            return { successfully: false, message: error.message }
+        if (row) {
+            await db.execute({
+                sql: `
+                    UPDATE conversations
+                    SET
+                        last_message_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND user_id = ?
+                `,
+                args: [conversation_id, userId],
+            })
         }
+
+        return row
+    }
+
+    static async createAll(messages: IConversationMessage[], userId: number) {
+        if (messages.length === 0) return []
+        const conversationId = messages[0].conversation_id
+        if (
+            messages.some(
+                (message) => message.conversation_id !== conversationId
+            )
+        ) {
+            return undefined
+        }
+
+        const transaction = await db.transaction('write')
+        try {
+            const conversation = (
+                await transaction.execute({
+                    sql: `
+                        SELECT id
+                        FROM conversations
+                        WHERE id = ? AND user_id = ?
+                    `,
+                    args: [conversationId, userId],
+                })
+            ).rows[0]
+            if (!conversation) {
+                await transaction.rollback()
+                return undefined
+            }
+
+            const created = []
+            for (const message of messages) {
+                const row = (
+                    await transaction.execute({
+                        sql: `
+                            INSERT INTO conversation_messages (
+                                conversation_id,
+                                message,
+                                sender
+                            )
+                            VALUES (?, ?, ?)
+                            RETURNING *
+                        `,
+                        args: [
+                            message.conversation_id,
+                            message.message,
+                            message.sender,
+                        ],
+                    })
+                ).rows[0]
+                created.push(row)
+            }
+
+            await transaction.execute({
+                sql: `
+                    UPDATE conversations
+                    SET
+                        last_message_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE id = ? AND user_id = ?
+                `,
+                args: [conversationId, userId],
+            })
+            await transaction.commit()
+            return created
+        } catch (error) {
+            await transaction.rollback()
+            throw error
+        } finally {
+            transaction.close()
+        }
+    }
+
+    static async get(id: number, userId: number) {
+        return (
+            await db.execute({
+                sql: `
+                    SELECT m.*
+                    FROM conversation_messages m
+                    JOIN conversations c ON c.id = m.conversation_id
+                    WHERE m.id = ? AND c.user_id = ?
+                `,
+                args: [id, userId],
+            })
+        ).rows[0]
+    }
+
+    static async getAllByConversationId(
+        conversationId: number,
+        userId: number
+    ) {
+        return (
+            await db.execute({
+                sql: `
+                    SELECT m.*
+                    FROM conversation_messages m
+                    JOIN conversations c ON c.id = m.conversation_id
+                    WHERE m.conversation_id = ? AND c.user_id = ?
+                    ORDER BY m.created_at ASC, m.id ASC
+                `,
+                args: [conversationId, userId],
+            })
+        ).rows
+    }
+
+    static async delete(id: number, userId: number): Promise<boolean> {
+        const result = await db.execute({
+            sql: `
+                DELETE FROM conversation_messages
+                WHERE id = ? AND conversation_id IN (
+                    SELECT id
+                    FROM conversations
+                    WHERE user_id = ?
+                )
+            `,
+            args: [id, userId],
+        })
+        return result.rowsAffected === 1
     }
 }

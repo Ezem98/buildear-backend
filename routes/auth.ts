@@ -1,12 +1,14 @@
 import { Router } from 'express'
-import passport from 'passport'
-import { AuthController } from '../controllers/auth.ts'
+import { AuthController } from '../controllers/auth.js'
+import { requireAuth } from '../middleware/auth.js'
+import { asyncHandler } from '../middleware/asyncHandler.js'
+import { loginRateLimit } from '../middleware/rateLimits.js'
 
 export const authRouter = Router()
 
-authRouter.post('/login', AuthController.login)
-authRouter.get(
-    '/google/callback',
-    passport.authenticate('google', { failureRedirect: '/' }),
-    AuthController.google
+authRouter.post('/login', loginRateLimit, asyncHandler(AuthController.login))
+authRouter.post(
+    '/logout',
+    asyncHandler(requireAuth),
+    asyncHandler(AuthController.logout)
 )
