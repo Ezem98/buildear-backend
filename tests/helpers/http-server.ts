@@ -10,7 +10,16 @@ import {
 import { db } from '../../utils/consts.js'
 
 const fakeProvider: OpenAIProvider = {
-    async generateGuide() {
+    async generateGuide(input) {
+        if (input.modelName === 'simulate-error') {
+            throw new OpenAIServiceError('OPENAI_PROVIDER_ERROR', {
+                model: 'guide-test-model',
+                promptVersion: GUIDE_PROMPT_VERSION,
+                latencyMs: 7,
+                status: 'failed',
+                errorCode: 'OPENAI_PROVIDER_ERROR',
+            })
+        }
         return {
             data: {
                 titulo: 'Guía HTTP simulada',

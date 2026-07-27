@@ -1,8 +1,7 @@
 import z from 'zod'
 import { ExperienceLevel } from '../enums/experienceLevel.js'
-import { IOpenAI } from '../types/openAI.js'
 
-export const openAISchema = z
+const openAIGenerationInputSchema = z
     .object({
         modelCategory: z.number().int().positive(),
         modelName: z.string().trim().min(1).max(200),
@@ -26,6 +25,12 @@ export const openAISchema = z
     })
     .strict()
 
+export const openAISchema = openAIGenerationInputSchema
+    .extend({
+        model_id: z.number().int().positive(),
+    })
+    .strict()
+
 export const openAIMessageSchema = z
     .object({
         message: z.string().trim().min(1).max(4000),
@@ -33,7 +38,7 @@ export const openAIMessageSchema = z
     })
     .strict()
 
-export const validOpenAIData = (openAIData: IOpenAI) => {
+export const validOpenAIData = (openAIData: unknown) => {
     return openAISchema.safeParse(openAIData)
 }
 

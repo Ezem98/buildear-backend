@@ -7,7 +7,7 @@ export const userModelSchema = z
         user_id: z.number().positive().int(),
         model_id: z.number().positive().int(),
         completed: z.number().int().min(0).max(1).default(0),
-        current_step: z.number().positive().int().default(1),
+        current_step: z.number().nonnegative().int().default(0),
         guide: guideSchema,
     })
     .strict()

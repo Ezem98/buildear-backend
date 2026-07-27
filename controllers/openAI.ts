@@ -1,89 +1,108 @@
-import { Request, Response } from 'express'
+import type { Request, Response } from 'express'
 import { AppError } from '../errors/appError.js'
 import { authenticatedUser } from '../middleware/auth.js'
-import { ConversationMessageModel } from '../models/conversationMessages.js'
-import { ConversationModel } from '../models/conversations.js'
+import { ModelModel } from '../models/models.js'
 import { OpenAIModel } from '../models/openAI.js'
 import { validOpenAIData, validOpenAIMessageData } from '../schemas/openAI.js'
-import type { ChatContextMessage } from '../services/openAI.js'
 
 export class OpenAIController {
-    static async generateStepsWithOpenAI(req: Request, res: Response) {
-        const { body } = req
-        const auth = authenticatedUser(req)
-        const validationResult = validOpenAIData(body)
+    static async generateStepsWithOpenAI(request: Request, response: Response) {
+        const auth = authenticatedUser(request)
+        const validation = validOpenAIData(request.body)
 
-        if (!validationResult.success)
+        if (!validation.success) {
             throw new AppError(
                 400,
                 'VALIDATION_ERROR',
                 'Los datos para generar la guía son inválidos',
-                validationResult.error.issues
+                validation.error.issues
             )
+        }
+
+        const { model_id: modelId, ...openAIInput } = validation.data
+        const model = await ModelModel.getById(modelId)
+        if (!model.successfully) {
+            throw new AppError(
+                404,
+                'MODEL_NOT_FOUND',
+                'No se encontró el modelo'
+            )
+        }
 
         const { successfully, message, data } =
             await OpenAIModel.generateStepsWithOpenAI(
-                validationResult.data,
-                auth.userId
+                openAIInput,
+                auth.userId,
+                modelId
             )
 
-        if (!successfully)
+        if (!successfully) {
             throw new AppError(
                 502,
                 'OPENAI_GUIDE_FAILED',
-                'No se pudo generar la guía'
+                'No se pudo generar o guardar la guía'
             )
+        }
 
-        return res.json({ message, successfully, data })
+        return response.json({
+            message,
+            successfully,
+            data: data?.guide,
+            user_model: data?.userModel,
+        })
     }
 
-    static async responseMessage(req: Request, res: Response) {
-        const validationResult = validOpenAIMessageData(req.body)
-        const auth = authenticatedUser(req)
+    static async responseMessage(request: Request, response: Response) {
+        const validation = validOpenAIMessageData(request.body)
+        const auth = authenticatedUser(request)
 
-        if (!validationResult.success)
+        if (!validation.success) {
             throw new AppError(
                 400,
                 'VALIDATION_ERROR',
                 'El mensaje es inválido',
-                validationResult.error.issues
-            )
-
-        const conversationId = validationResult.data.conversation_id
-        let context: ChatContextMessage[] = []
-
-        if (conversationId !== undefined) {
-            const conversation = await ConversationModel.get(
-                conversationId,
-                auth.userId
-            )
-            if (!conversation) {
-                throw new AppError(
-                    404,
-                    'CONVERSATION_NOT_FOUND',
-                    'ConversaciÃ³n no encontrada'
-                )
-            }
-            context = await ConversationMessageModel.getContextWindow(
-                conversationId,
-                auth.userId
+                validation.error.issues
             )
         }
 
         const { successfully, message, data } =
             await OpenAIModel.responseMessage(
-                validationResult.data.message,
+                validation.data.message,
                 auth.userId,
-                context
+                validation.data.conversation_id
             )
 
-        if (!successfully)
+        if (!successfully) {
+            if (message === 'Conversation not found') {
+                throw new AppError(
+                    404,
+                    'CONVERSATION_NOT_FOUND',
+                    'Conversación no encontrada'
+                )
+            }
+
             throw new AppError(
                 502,
                 'OPENAI_MESSAGE_FAILED',
-                'No se pudo generar la respuesta'
+                'No se pudo generar la respuesta',
+                data
+                    ? {
+                          conversation_id: data.conversation.id,
+                          user_message_id: data.userMessage.id,
+                          assistant_message_id: data.assistantMessage?.id,
+                      }
+                    : undefined
             )
+        }
 
-        return res.json({ message, successfully, data })
+        return response.json({
+            message,
+            successfully,
+            data: data?.answer,
+            conversation_id: data?.conversation.id,
+            conversation: data?.conversation,
+            user_message: data?.userMessage,
+            assistant_message: data?.assistantMessage,
+        })
     }
 }

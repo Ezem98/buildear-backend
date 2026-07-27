@@ -1,3 +1,4 @@
+import type { Transaction } from '@libsql/client'
 import type { OpenAIMetadata } from '../services/openAI.js'
 import { db } from '../utils/consts.js'
 
@@ -7,9 +8,10 @@ export class AiGenerationModel {
     static async record(
         userId: number,
         feature: OpenAIFeature,
-        metadata: OpenAIMetadata
+        metadata: OpenAIMetadata,
+        executor: Pick<Transaction, 'execute'> = db
     ): Promise<void> {
-        await db.execute({
+        await executor.execute({
             sql: `
                 INSERT INTO ai_generations (
                     user_id,

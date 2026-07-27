@@ -44,8 +44,8 @@ Se usa la misma leyenda que en `CAMBIOS_Y_MEJORAS.md`: ✅ verificado, 🟡 ejec
 | Sincronización de `local.db` | ✅ Verificado | Fue actualizada hasta `0004`, pasa integridad/FKs y cada conexión `file:` activa `PRAGMA foreign_keys = ON`. | Mantener el gate al avanzar dependencias. |
 | Actualización de paquetes | 🟡 En curso | Se actualizaron libSQL, OpenAI, Zod, Express, Cloudinary, CORS, fileupload, dotenv, tsx y tipos; Passport fue retirado. | Continuar TypeScript y configuración centralizada. |
 | OpenAI SDK 6 | ✅ Verificado localmente y contra el proveedor | `openai` 6.49.0 con proveedor inyectable, tests sin red y smoke real exitoso con metadata de uso. | Mantener el smoke fuera de CI y ejecutar canary con presupuesto acotado. |
-| Responses para chat | 🟡 Proveedor y telemetría E2E verificados | Registro, login y `POST /api/v1/openai/message` completaron el flujo real; `ai_generations` contiene metadata, pero no se creó conversación ni se guardaron mensajes. | Persistir mensajes y metadata del asistente; luego ejecutar evals/canary. |
-| Responses para guías | 🟡 Proveedor y telemetría E2E verificados | `POST /api/v1/openai` completó Structured Outputs y persistió telemetría en `ai_generations`, pero no guardó el JSON en `user_models`. | Definir `model_id`/recurso de guía, persistir contenido y comparar modelos. |
+| Responses para chat | ✅ Flujo funcional E2E verificado | El endpoint crea o continúa una conversación, persiste ambos mensajes y vincula metadata al asistente; éxito y error están cubiertos localmente y el éxito fue confirmado en staging. | Ejecutar evals/canary y observar costos. |
+| Responses para guías | ✅ Flujo funcional E2E verificado | Structured Outputs exige `model_id`, hace upsert del JSON y metadata en `user_models` y preserva progreso al regenerar; fue confirmado en staging. | Comparar modelos con evals representativas. |
 | Selección de modelos | 🟡 Comparación inicial ejecutada | Los mismos smokes reales pasaron con `gpt-4o-mini` y `gpt-5.4-mini`; el segundo fue más lento y entre 7,18 y 14,97 veces más costoso en estas muestras. | Crear dataset y graders para comparar calidad y seguridad antes de elegir. |
 | Express 5, Zod 4 y TypeScript | 🟡 En curso | Express 5.2.1, Zod 4.4.3 y TypeScript 6.0.3 pasan la suite. | Esperar soporte de TypeScript 7 en typescript-eslint. |
 | Seguridad y caracterización HTTP | ✅ Baseline verificado | Sesiones opacas, DTO público, ownership, roles, scrypt/rehash, límites y seis tests verdes. El ADR decide no usar refresh inicialmente. | Adoptar store compartido de rate limiting al escalar y replicar gates en CI. |
@@ -57,8 +57,8 @@ Se usa la misma leyenda que en `CAMBIOS_Y_MEJORAS.md`: ✅ verificado, 🟡 ejec
 |---|---|---|---|
 | DEC-001 | Usar Node.js 26.5.0 en desarrollo, CI y producción | Aprobada | `@types/node`, `engines`, imágenes y toolchain deben alinearse. |
 | DEC-002 | Mantener Turso/libSQL en vez de cambiar de motor | Propuesta vigente | El trabajo se concentra en migraciones y consistencia, no en replatforming. |
-| DEC-003 | Usar Turso como fuente de verdad del chat y Responses con `store: false` inicialmente | Propuesta pendiente de aprobación | Evita depender del estado remoto de OpenAI y reutiliza las tablas existentes. |
-| DEC-004 | No incorporar Agents SDK mientras no existan herramientas autónomas | Propuesta pendiente de aprobación | Reduce orquestación y superficie de fallo. |
+| DEC-003 | Usar Turso como fuente de verdad del chat y Responses con `store: false` inicialmente | Implementada | Evita depender del estado remoto de OpenAI y reutiliza las tablas existentes. |
+| DEC-004 | No incorporar Agents SDK mientras no existan herramientas autónomas | Implementada | Reduce orquestación y superficie de fallo. |
 | DEC-005 | Separar actualización de API y selección de modelo | Aprobada por el plan | Permite medir regresiones y volver atrás con menor riesgo. |
 
 ## Plataforma objetivo
@@ -449,6 +449,24 @@ Acciones:
   está en la integración/contrato del flujo modernizado, que no reemplazó esa
   coordinación al probar los nuevos endpoints OpenAI; no requiere una nueva
   migración SQL;
+- esa observación describe el corte `a33b260` y quedó resuelta en el siguiente
+  corte funcional: la guía exige `model_id`, hace upsert en `user_models` sin
+  reiniciar progreso y el chat crea o continúa la conversación, guardando los
+  mensajes `user` y `assistant`;
+- las llamadas externas no mantienen una transacción abierta. La persistencia
+  final de contenido y telemetría sí es atómica; los fallos conservan el mensaje
+  del usuario y agregan una fila del asistente con `status = 'failed'`;
+- la suite HTTP simulada verificó éxito, fallos, ownership, contexto acotado,
+  metadata y regeneración sin perder `completed/current_step`;
+- el smoke reproducible `npm run smoke:openai:staging` completó registro, login,
+  guía, chat, lecturas y logout con Node 26.5.0 y
+  `gpt-5.4-mini-2026-03-17`. Dejó para inspección el usuario 31,
+  `user_models` 9 y conversación 22;
+- una consulta directa de sólo lectura confirmó en Turso una guía JSON válida,
+  dos mensajes `user:completed,assistant:completed` y dos filas
+  `ai_generations` con response IDs. Guía consumió 272/1.086 tokens y chat
+  51/454, ambos sin error;
+- no se ejecutó DDL ni se escribió en producción o `galarte-db`;
 - formato, lint, typecheck, build, seis tests, migraciones local/staging y audit
   sin vulnerabilidades volvieron a pasar después del E2E;
 - faltan evals, separar el proyecto OpenAI de staging y realizar el canary.
@@ -806,10 +824,10 @@ Cada commit debe poder revertirse sin depender de commits posteriores, salvo cua
   al servicio.
 - [x] Los endpoints autenticados de staging persisten y permiten verificar la
   metadata real en `ai_generations`.
-- [ ] El chat persiste la conversación y ambos mensajes con ownership y
+- [x] El chat persiste la conversación y ambos mensajes con ownership y
   metadata del asistente.
-- [ ] La guía generada se asocia a un `model_id` y se persiste con su metadata,
-  o se define un recurso independiente.
+- [x] La guía generada se asocia a un `model_id`, se persiste con su metadata y
+  una regeneración no reinicia el progreso.
 - [ ] El modelo OpenAI fue elegido mediante evals, no sólo por ser el más nuevo.
 - [ ] Staging y producción tienen proyectos, límites de gasto y métricas separados.
 - [ ] Existe rollback documentado y ensayado.

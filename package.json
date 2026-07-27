@@ -17,7 +17,8 @@
         "db:migrate": "tsx scripts/migrate.ts apply",
         "db:migrate:verify": "tsx scripts/migrate.ts verify",
         "db:migrate:staging": "node --env-file=.env.staging --import tsx scripts/migrate.ts apply",
-        "db:migrate:staging:verify": "node --env-file=.env.staging --import tsx scripts/migrate.ts verify"
+        "db:migrate:staging:verify": "node --env-file=.env.staging --import tsx scripts/migrate.ts verify",
+        "smoke:openai:staging": "node --env-file=.env --env-file=.env.staging --import tsx scripts/smoke-openai-flow.ts"
     },
     "engines": {
         "node": ">=26.5.0 <27",

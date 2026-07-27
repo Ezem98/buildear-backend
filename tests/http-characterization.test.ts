@@ -198,27 +198,6 @@ function assertPublicUser(user: Record<string, unknown>): void {
     assert.equal('password_salt' in user, false)
 }
 
-const guide = {
-    titulo: 'Guía de prueba',
-    explicacion: 'Explicación de caracterización',
-    pasos: [
-        {
-            paso: 1,
-            titulo: 'Preparar',
-            descripcion: 'Preparar la superficie.',
-        },
-    ],
-    materiales: [
-        {
-            material: 'Cemento',
-            cantidad: '1 bolsa',
-            finalidad: 'Unir materiales',
-        },
-    ],
-    tiempo_insumido: 60,
-    costo: 100,
-}
-
 test('protects users and owned resources without leaking credentials', async () => {
     const temporaryDirectory = await mkdtemp(
         path.join(tmpdir(), 'buildear-http-')
@@ -545,6 +524,7 @@ test('protects users and owned resources without leaking credentials', async () 
             method: 'POST',
             token: aliceToken,
             body: {
+                model_id: seededModel.id,
                 modelCategory: 3,
                 modelName: 'pared',
                 modelSize: { width: 300, height: 240 },
@@ -556,6 +536,31 @@ test('protects users and owned resources without leaking credentials', async () 
             generatedGuideResponse.body.data.titulo,
             'Guía HTTP simulada'
         )
+        assert.equal(
+            generatedGuideResponse.body.user_model.model_id,
+            seededModel.id
+        )
+        assert.equal(generatedGuideResponse.body.user_model.completed, 0)
+        assert.equal(generatedGuideResponse.body.user_model.current_step, 0)
+        assert.equal(
+            generatedGuideResponse.body.user_model.openai_response_id,
+            'resp_http_guide'
+        )
+        assert.equal(
+            generatedGuideResponse.body.user_model.generation_status,
+            'completed'
+        )
+        const progressId = Number(generatedGuideResponse.body.user_model.id)
+        const persistedGuide = await api(
+            server.baseUrl,
+            `/userModels/${aliceId}/${seededModel.id}`,
+            { token: aliceToken }
+        )
+        assert.equal(persistedGuide.status, 200)
+        assert.equal(
+            JSON.parse(persistedGuide.body.data.guide).titulo,
+            'Guía HTTP simulada'
+        )
 
         const chatResponse = await api(server.baseUrl, '/openAI/message', {
             method: 'POST',
@@ -564,6 +569,18 @@ test('protects users and owned resources without leaking credentials', async () 
         })
         assert.equal(chatResponse.status, 200)
         assert.equal(chatResponse.body.data, 'Respuesta HTTP simulada')
+        const automaticConversationId = Number(
+            chatResponse.body.conversation_id
+        )
+        assert.ok(automaticConversationId > 0)
+        assert.equal(chatResponse.body.user_message.sender, 'user')
+        assert.equal(chatResponse.body.assistant_message.sender, 'assistant')
+        assert.equal(
+            chatResponse.body.assistant_message.openai_response_id,
+            'resp_http_chat'
+        )
+        assert.equal(chatResponse.body.assistant_message.input_tokens, 20)
+        assert.equal(chatResponse.body.assistant_message.output_tokens, 10)
 
         const failedChatResponse = await api(
             server.baseUrl,
@@ -571,13 +588,57 @@ test('protects users and owned resources without leaking credentials', async () 
             {
                 method: 'POST',
                 token: aliceToken,
-                body: { message: 'simulate-error' },
+                body: {
+                    conversation_id: automaticConversationId,
+                    message: 'simulate-error',
+                },
             }
         )
         assert.equal(failedChatResponse.status, 502)
         assert.equal(
             failedChatResponse.body.error.code,
             'OPENAI_MESSAGE_FAILED'
+        )
+        assert.equal(
+            failedChatResponse.body.error.details.conversation_id,
+            automaticConversationId
+        )
+
+        const automaticMessages = await api(
+            server.baseUrl,
+            `/conversationMessage/conversation/${automaticConversationId}`,
+            { token: aliceToken }
+        )
+        assert.equal(automaticMessages.status, 200)
+        assert.deepEqual(
+            automaticMessages.body.data.map(
+                (record: Record<string, unknown>) => [
+                    record.sender,
+                    record.status,
+                ]
+            ),
+            [
+                ['user', 'completed'],
+                ['assistant', 'completed'],
+                ['user', 'completed'],
+                ['assistant', 'failed'],
+            ]
+        )
+        assert.equal(
+            automaticMessages.body.data[3].error_code,
+            'OPENAI_PROVIDER_ERROR'
+        )
+        const automaticConversations = await api(
+            server.baseUrl,
+            `/conversation/user/${aliceId}`,
+            { token: aliceToken }
+        )
+        assert.equal(automaticConversations.status, 200)
+        assert.ok(
+            automaticConversations.body.data.some(
+                (record: Record<string, unknown>) =>
+                    Number(record.id) === automaticConversationId
+            )
         )
 
         const generations = runDatabaseHelper<{
@@ -632,20 +693,6 @@ test('protects users and owned resources without leaking credentials', async () 
         )
         assert.equal(foreignFavorite.status, 403)
 
-        const progress = await api(server.baseUrl, '/userModels', {
-            method: 'POST',
-            token: aliceToken,
-            body: {
-                user_id: aliceId,
-                model_id: seededModel.id,
-                completed: 0,
-                current_step: 1,
-                guideObject: guide,
-            },
-        })
-        assert.equal(progress.status, 201)
-        const progressId = Number(progress.body.data.id)
-
         const foreignProgress = await api(
             server.baseUrl,
             `/userModels/${aliceId}/${seededModel.id}`,
@@ -665,6 +712,74 @@ test('protects users and owned resources without leaking credentials', async () 
         assert.equal(progressUpdate.status, 200)
         assert.equal(progressUpdate.body.data.completed, 1)
         assert.equal(progressUpdate.body.data.current_step, 2)
+
+        const regeneratedGuide = await api(server.baseUrl, '/openAI', {
+            method: 'POST',
+            token: aliceToken,
+            body: {
+                model_id: seededModel.id,
+                modelCategory: 3,
+                modelName: 'pared',
+                modelSize: { width: 300, height: 240 },
+                experienceLevel: 1,
+            },
+        })
+        assert.equal(regeneratedGuide.status, 200)
+        assert.equal(regeneratedGuide.body.user_model.id, progressId)
+        assert.equal(regeneratedGuide.body.user_model.completed, 1)
+        assert.equal(regeneratedGuide.body.user_model.current_step, 2)
+        const persistedProgress = await api(
+            server.baseUrl,
+            `/userModels/${aliceId}/${seededModel.id}`,
+            { token: aliceToken }
+        )
+        assert.equal(persistedProgress.status, 200)
+        assert.equal(persistedProgress.body.data.completed, 1)
+        assert.equal(persistedProgress.body.data.current_step, 2)
+
+        const failedGuide = await api(server.baseUrl, '/openAI', {
+            method: 'POST',
+            token: aliceToken,
+            body: {
+                model_id: seededModel.id,
+                modelCategory: 3,
+                modelName: 'simulate-error',
+                modelSize: { width: 300, height: 240 },
+                experienceLevel: 1,
+            },
+        })
+        assert.equal(failedGuide.status, 502)
+        assert.equal(failedGuide.body.error.code, 'OPENAI_GUIDE_FAILED')
+
+        const progressAfterFailedGuide = await api(
+            server.baseUrl,
+            `/userModels/${aliceId}/${seededModel.id}`,
+            { token: aliceToken }
+        )
+        assert.equal(progressAfterFailedGuide.status, 200)
+        assert.equal(progressAfterFailedGuide.body.data.completed, 1)
+        assert.equal(progressAfterFailedGuide.body.data.current_step, 2)
+        assert.equal(
+            JSON.parse(progressAfterFailedGuide.body.data.guide).titulo,
+            'Guía HTTP simulada'
+        )
+        assert.equal(
+            progressAfterFailedGuide.body.data.generation_status,
+            'failed'
+        )
+
+        const generationsAfterFailedGuide = runDatabaseHelper<{
+            records: Array<Record<string, unknown>>
+        }>('inspect-ai-generations', url)
+        assert.deepEqual(
+            generationsAfterFailedGuide.records
+                .slice(-2)
+                .map((record) => [record.feature, record.status]),
+            [
+                ['guide', 'completed'],
+                ['guide', 'failed'],
+            ]
+        )
 
         const spoofedConversation = await api(server.baseUrl, '/conversation', {
             method: 'POST',
@@ -789,7 +904,7 @@ test('protects users and owned resources without leaking credentials', async () 
             { token: aliceToken }
         )
         assert.equal(messageList.status, 200)
-        assert.equal(messageList.body.data.length, 15)
+        assert.equal(messageList.body.data.length, 19)
 
         const deleteMessage = await api(
             server.baseUrl,

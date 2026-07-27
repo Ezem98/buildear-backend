@@ -41,9 +41,9 @@ Las prioridades inmediatas son:
 | Seed de categorías | ✅ Verificado | Existen `roof`, `floor`, `wall`, `opening` y `foundation`, con IDs 1–5. | Versionar el seed sin volver a insertarlo en producción. |
 | Base local | ✅ Verificado | `local.db` quedó en `0004`: diez tablas, diez índices, cinco categorías, integridad `ok` y cero violaciones FK. El cliente activa y comprueba FKs para toda URL `file:`. | Mantener este control en la suite y repetirlo al actualizar libSQL. |
 | Migraciones versionadas | ✅ Verificado localmente y en staging | El runner aplicó `0003`/`0004` a `buildear-db-staging` y validó cuatro checksums, 10 tablas, 10 índices, integridad y FKs. | Ejecutar pruebas funcionales en staging antes de planificar la promoción a producción. |
-| Aplicación de las nuevas columnas en el backend | ✅ Verificado localmente | Cada guía/chat registra en `ai_generations` response ID, modelo, prompt, tokens, latencia, estado y error. | Vincular también metadata a mensajes/progreso cuando esos endpoints reciban sus IDs de dominio. |
+| Aplicación de las nuevas columnas en el backend | ✅ Verificado localmente y en staging | Guías, mensajes del asistente y `ai_generations` guardan response ID, modelo/prompt, tokens, estado y error según corresponda. El E2E real confirmó contenido y metadata. | Mantener regresiones y observar el canary. |
 | Fixes funcionales y seguridad | ✅ Baseline verificado | DTO público, sesiones opacas, ownership, rol persistente, scrypt con rehash PBKDF2, rate limiting, errores centralizados y fixes BUG-001/002/003 están cubiertos por tests HTTP. | Reemplazar el store de rate limiting antes de escalar a múltiples instancias. |
-| Dependencias y OpenAI Responses | 🟡 Proveedor y telemetría E2E verificados; contenido pendiente | OpenAI 6.49, Zod 4.4, Express 5.2, Cloudinary 2.10 y demás parches pasan los gates; audit está en cero. Registro, login, chat y guía completaron el flujo HTTP real con `gpt-5.4-mini` y persistieron metadata en staging, pero no el contenido. | Persistir conversación y guía, ampliar evals y ejecutar canary con límites de gasto. |
+| Dependencias y OpenAI Responses | ✅ Flujo funcional E2E verificado | OpenAI 6.49, Zod 4.4, Express 5.2, Cloudinary 2.10 y demás parches pasan los gates; audit está en cero. Registro, login, chat y guía completaron el flujo HTTP real con `gpt-5.4-mini` y persistieron contenido más metadata en staging. | Ampliar evals y ejecutar canary con límites de gasto. |
 
 ### Evidencia del corte
 
@@ -622,8 +622,8 @@ simulado, incomplete output y refusal.
 
 ### AI-004 — Persistir el contenido generado y su trazabilidad
 
-**Estado:** ⬜ Pendiente. Regresión de integración confirmada por E2E de
-staging; no es una diferencia ni una falla del esquema SQL.
+**Estado:** ✅ Resuelto y verificado localmente y en Turso staging. La causa era
+una regresión de integración, no una diferencia ni una falla del esquema SQL.
 
 **Problema:**
 
@@ -653,16 +653,33 @@ staging; no es una diferencia ni una falla del esquema SQL.
   regresión de contrato: no faltan tablas o columnas y no se debe modificar el
   esquema de Turso para corregirla.
 
-**Cambios requeridos:**
+**Implementación y evidencia — 2026-07-27:**
 
-- Exigir o crear una conversación, validar ownership y persistir en forma
-  atómica los mensajes `user`/`assistant`; vincular la fila del asistente con
-  response ID, tokens, estado y error.
-- Definir el contrato de guía: agregar `model_id` validado y hacer upsert en
-  `user_models`, o crear un recurso de guía independiente si una guía no siempre
-  pertenece a un modelo existente.
-- Agregar regresiones para éxito, error del proveedor, ownership y rollback
-  parcial, tanto en `file:` como en Turso staging.
+- `POST /api/v1/openai` exige un `model_id` existente. Después de Structured
+  Outputs hace upsert de `guide` y metadata en `user_models`; una regeneración
+  actualiza la guía sin reiniciar `completed` ni `current_step`.
+- `POST /api/v1/openai/message` crea una conversación cuando no recibe
+  `conversation_id`, guarda el mensaje del usuario y persiste la respuesta del
+  asistente con response ID, tokens, estado y error. Si OpenAI falla, conserva
+  el turno con un mensaje de asistente `failed`.
+- Ninguna transacción permanece abierta durante la llamada externa. La
+  escritura final del contenido y `ai_generations` sí comparte una transacción,
+  compatible con Turso/libSQL y `file:`.
+- La regresión HTTP simulada cubre creación automática, contexto acotado,
+  ownership, metadata, error de chat, error de guía y regeneración sin pérdida
+  de progreso.
+- `npm run smoke:openai:staging` ejecutó el flujo real con Node 26.5.0 y
+  `gpt-5.4-mini-2026-03-17`. Creó el usuario sintético ID 31, `user_models` ID 9
+  y conversación ID 22; la sesión quedó revocada.
+- Una consulta Turso independiente confirmó guía JSON válida, estado
+  `completed`, response ID presente, `current_step = 0`, `completed = 0`, dos
+  mensajes `user`/`assistant` completos y response ID en el asistente.
+  `ai_generations` registró guía 272/1.086 tokens y chat 51/454 tokens, ambos
+  sin error.
+- Después del smoke pasaron `format:check`, lint, typecheck, build, los seis
+  tests, verificación de las cuatro migraciones local/staging y
+  `npm audit --omit=dev` con cero vulnerabilidades, todo con Node 26.5.0.
+- No se aplicó DDL ni se modificó producción o `galarte-db`.
 
 ## P1 — Contrato HTTP y validación
 
