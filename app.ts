@@ -24,6 +24,8 @@ function uploadFileSizeLimit(): number {
 
 export const app = express()
 
+app.set('trust proxy', 1)
+
 app.disable('x-powered-by')
 app.use(requestContext)
 app.use(securityHeaders)
