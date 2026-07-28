@@ -16,8 +16,10 @@ export const userSchema = z
             .number()
             .int()
             .min(ExperienceLevel.BEGINNER)
-            .max(ExperienceLevel.ADVANCED, 'Experience level must be at most 3')
-            .default(ExperienceLevel.BEGINNER),
+            .max(
+                ExperienceLevel.ADVANCED,
+                'Experience level must be at most 3'
+            ),
         completed_profile: z.number().int().min(0).max(1).default(0),
     })
     .strict()

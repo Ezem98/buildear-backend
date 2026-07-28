@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express'
+import { ExperienceLevel } from '../enums/experienceLevel.ts'
 import { AppError } from '../errors/appError.js'
 import { assertOwnedUsername, authenticatedUser } from '../middleware/auth.js'
 import { AuthSessionModel } from '../models/authSessions.js'
@@ -49,7 +50,10 @@ export class UserController {
     }
 
     static async create(request: Request, response: Response) {
-        const validation = validUserData(request.body)
+        const validation = validUserData({
+            ...request.body,
+            experience_level: ExperienceLevel.BEGINNER,
+        })
         if (!validation.success) {
             throw new AppError(
                 400,

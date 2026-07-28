@@ -1,4 +1,6 @@
 import type { Row } from '@libsql/client'
+import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { CloudinaryModel } from '../models/cloudinary.js'
 import type {
     IUpdateUser,
@@ -9,6 +11,11 @@ import type {
 } from '../types/user.js'
 import { db } from '../utils/consts.js'
 import { generatePassword, validPassword } from '../utils/functions.js'
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+
+const avatarPath = path.resolve(__dirname, '../assets/avatar.png')
 
 const PUBLIC_USER_COLUMNS = `
     id,
@@ -148,7 +155,7 @@ export class UserModel {
             await generatePassword(password)
         const imageUrl = image
             ? await CloudinaryModel.uploadImage(
-                  image,
+                  avatarPath,
                   `${username}-profile-image`,
                   'usersImages'
               )
