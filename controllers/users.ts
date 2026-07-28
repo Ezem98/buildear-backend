@@ -1,5 +1,5 @@
 import type { Request, Response } from 'express'
-import { ExperienceLevel } from '../enums/experienceLevel.ts'
+import { ExperienceLevel } from '../enums/experienceLevel.js'
 import { AppError } from '../errors/appError.js'
 import { assertOwnedUsername, authenticatedUser } from '../middleware/auth.js'
 import { AuthSessionModel } from '../models/authSessions.js'
