@@ -123,6 +123,14 @@ test('uses Responses with structured output, store false and simulated telemetry
     assert.match(guidePayload.instructions ?? '', /Easy Argentina/)
     assert.match(guidePayload.instructions ?? '', /Sodimac Argentina/)
     assert.match(guidePayload.instructions ?? '', /1 USD = 1500 ARS/)
+    assert.match(
+        guidePayload.instructions ?? '',
+        /usá "hueco" o "abertura" en lugar de "vano"/
+    )
+    assert.doesNotMatch(
+        guidePayload.instructions ?? '',
+        /verificación del vano/
+    )
     assert.doesNotMatch(
         guidePayload.instructions ?? '',
         /Como la entrada no incluye una lista de precios verificable/
@@ -169,8 +177,13 @@ test('uses Responses with structured output, store false and simulated telemetry
         },
     })
     const chatPayload = calls[1].payload as {
+        instructions?: string
         input?: Array<{ role: string; content: string }>
     }
+    assert.match(
+        chatPayload.instructions ?? '',
+        /usá "hueco" o "abertura" en lugar de "vano"/
+    )
     assert.deepEqual(chatPayload.input, [
         { role: 'user', content: 'Pregunta anterior' },
         { role: 'assistant', content: 'Respuesta anterior' },

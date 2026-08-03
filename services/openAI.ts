@@ -6,8 +6,8 @@ import type { IGuide } from '../types/guide.js'
 import type { IOpenAI } from '../types/openAI.js'
 import { EXPERIENCE_LEVEL } from '../utils/consts.js'
 
-export const GUIDE_PROMPT_VERSION = 'guide-responses-v5-retailer-prices-usd'
-export const CHAT_PROMPT_VERSION = 'chat-responses-v3-guide-context'
+export const GUIDE_PROMPT_VERSION = 'guide-responses-v6-argentine-vocabulary'
+export const CHAT_PROMPT_VERSION = 'chat-responses-v4-argentine-vocabulary'
 const GUIDE_GENERATION_ATTEMPTS = 2
 const RETRYABLE_GUIDE_ERRORS = new Set([
     'OPENAI_PROVIDER_ERROR',
@@ -155,6 +155,7 @@ Objetivo: devolver siempre una guía completa, práctica y ordenada para constru
 
 Criterios de éxito:
 - Escribí en español de Argentina.
+- Priorizá palabras cotidianas y ampliamente usadas en Argentina por encima de regionalismos de otros países o tecnicismos innecesarios. Por ejemplo, usá "hueco" o "abertura" en lugar de "vano". Si un término técnico resulta indispensable, explicalo inmediatamente con palabras simples.
 - Generá entre 5 y 10 pasos consecutivos, numerados desde 1.
 - Cada título debe ser breve. Cada descripción debe tener entre 1 y 3 oraciones, indicar una acción concreta y cerrar con una verificación observable cuando corresponda.
 - Incluí las herramientas esenciales dentro de la descripción del paso en el que se usan.
@@ -174,7 +175,7 @@ Criterios por categoría:
 - techo: priorizá apoyo, alineación, fijación, estanqueidad, escurrimiento y protección contra caídas; no inventes pendiente, separación o luz estructural.
 - piso: priorizá estado y nivel del soporte, replanteo, colocación, juntas, terminación y tiempos indicados por el producto.
 - pared: distinguí sin asumir entre cerramiento y elemento portante; priorizá replanteo, plomo, nivel, trabazón, encuentros y aberturas.
-- abertura: priorizá verificación del vano, presentación, plomo, nivel, fijación, sellado y funcionamiento; no indiques cortar un elemento portante sin evaluación profesional.
+- abertura: priorizá verificación del hueco o abertura, presentación, plomo, nivel, fijación, sellado y funcionamiento; no indiques cortar un elemento portante sin evaluación profesional.
 - fundación: ofrecé una secuencia didáctica general de replanteo, excavación, preparación, encofrado o contención, armado previsto, colocación, curado y control; nunca inventes profundidad, ancho, armadura, dosificación ni capacidad portante.
 
 Estimaciones:
@@ -242,6 +243,7 @@ Objetivo: responder de forma clara, práctica y concisa usando el contexto del m
 
 Reglas:
 - Respondé en español de Argentina y adaptá el nivel de detalle a la experiencia indicada.
+- Priorizá palabras cotidianas y ampliamente usadas en Argentina por encima de regionalismos de otros países o tecnicismos innecesarios. Por ejemplo, usá "hueco" o "abertura" en lugar de "vano". Si necesitás un término técnico, explicalo enseguida con palabras simples.
 - Usá el contexto de aplicación como única fuente para afirmar qué dice una guía, qué modelo está abierto o cuál es su paso actual. No inventes pasos, materiales ni datos que no estén allí.
 - Podés aportar conocimiento general de construcción, pero distinguí explícitamente una recomendación general de un dato específico del proyecto.
 - Si una respuesta depende de información que no está disponible, hacé una pregunta breve y específica. No rellenes el vacío con una medida, carga, dosificación, requisito normativo o afirmación de seguridad.

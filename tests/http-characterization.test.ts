@@ -655,9 +655,9 @@ test('protects users and owned resources without leaking credentials', async () 
         assert.deepEqual(
             generations.records.map((record) => record.prompt_version),
             [
-                'guide-responses-v5-retailer-prices-usd',
-                'chat-responses-v3-guide-context',
-                'chat-responses-v3-guide-context',
+                'guide-responses-v6-argentine-vocabulary',
+                'chat-responses-v4-argentine-vocabulary',
+                'chat-responses-v4-argentine-vocabulary',
             ]
         )
         assert.equal(generations.records[0].input_tokens, 100)
