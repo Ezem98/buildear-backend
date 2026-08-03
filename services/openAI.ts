@@ -11,6 +11,9 @@ export const CHAT_PROMPT_VERSION = 'chat-responses-v4-argentine-vocabulary'
 const GUIDE_GENERATION_ATTEMPTS = 2
 const RETRYABLE_GUIDE_ERRORS = new Set([
     'OPENAI_PROVIDER_ERROR',
+    'OPENAI_PROVIDER_UNAVAILABLE',
+    'OPENAI_RATE_LIMITED',
+    'OPENAI_TIMEOUT',
     'OPENAI_RESPONSE_INCOMPLETE',
     'OPENAI_OUTPUT_INVALID',
 ])
@@ -120,6 +123,43 @@ function failedMetadata(
         status: 'failed',
         errorCode,
     }
+}
+
+function providerErrorCode(error: unknown): string {
+    if (typeof error !== 'object' || error === null) {
+        return 'OPENAI_PROVIDER_ERROR'
+    }
+
+    const providerError = error as {
+        status?: unknown
+        code?: unknown
+        name?: unknown
+    }
+    const status =
+        typeof providerError.status === 'number'
+            ? providerError.status
+            : undefined
+    const code =
+        typeof providerError.code === 'string' ? providerError.code : undefined
+    const name =
+        typeof providerError.name === 'string' ? providerError.name : undefined
+
+    if (status === 401) return 'OPENAI_AUTHENTICATION_ERROR'
+    if (status === 403) return 'OPENAI_PERMISSION_ERROR'
+    if (status === 404) return 'OPENAI_MODEL_NOT_FOUND'
+    if (status === 429 && code === 'insufficient_quota') {
+        return 'OPENAI_QUOTA_EXCEEDED'
+    }
+    if (status === 429) return 'OPENAI_RATE_LIMITED'
+    if (status !== undefined && status >= 500) {
+        return 'OPENAI_PROVIDER_UNAVAILABLE'
+    }
+    if (status === 400) return 'OPENAI_REQUEST_INVALID'
+    if (name === 'APIConnectionTimeoutError' || code === 'ETIMEDOUT') {
+        return 'OPENAI_TIMEOUT'
+    }
+
+    return 'OPENAI_PROVIDER_ERROR'
 }
 
 function containsRefusal(output: unknown): boolean {
@@ -429,16 +469,19 @@ export class ResponsesOpenAIService implements OpenAIProvider {
                 const normalizedError =
                     error instanceof OpenAIServiceError
                         ? error
-                        : new OpenAIServiceError(
-                              'OPENAI_PROVIDER_ERROR',
-                              failedMetadata(
-                                  model,
-                                  GUIDE_PROMPT_VERSION,
-                                  startedAt,
-                                  'OPENAI_PROVIDER_ERROR'
-                              ),
-                              error
-                          )
+                        : (() => {
+                              const errorCode = providerErrorCode(error)
+                              return new OpenAIServiceError(
+                                  errorCode,
+                                  failedMetadata(
+                                      model,
+                                      GUIDE_PROMPT_VERSION,
+                                      startedAt,
+                                      errorCode
+                                  ),
+                                  error
+                              )
+                          })()
                 const canRetry =
                     RETRYABLE_GUIDE_ERRORS.has(normalizedError.code) &&
                     attempt < GUIDE_GENERATION_ATTEMPTS
@@ -506,13 +549,14 @@ export class ResponsesOpenAIService implements OpenAIProvider {
             }
         } catch (error) {
             if (error instanceof OpenAIServiceError) throw error
+            const errorCode = providerErrorCode(error)
             throw new OpenAIServiceError(
-                'OPENAI_PROVIDER_ERROR',
+                errorCode,
                 failedMetadata(
                     model,
                     CHAT_PROMPT_VERSION,
                     startedAt,
-                    'OPENAI_PROVIDER_ERROR'
+                    errorCode
                 ),
                 error
             )

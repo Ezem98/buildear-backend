@@ -324,6 +324,39 @@ test('normalizes incomplete Responses without making a real request', async () =
     )
 })
 
+test('classifies provider quota errors without exposing provider details', async () => {
+    let attempts = 0
+    const fakeClient = {
+        responses: {
+            parse: async () => {
+                attempts += 1
+                throw Object.assign(new Error('sensitive provider message'), {
+                    status: 429,
+                    code: 'insufficient_quota',
+                })
+            },
+        },
+    } as unknown as Pick<OpenAI, 'responses'>
+    const service = new ResponsesOpenAIService(fakeClient, {
+        guideModel: 'guide-test-model',
+        chatModel: 'chat-test-model',
+    })
+
+    await assert.rejects(
+        service.generateGuide({
+            modelCategory: Categories.Floor,
+            modelName: 'piso',
+            modelSize: { width: 40, height: 40 },
+            experienceLevel: ExperienceLevel.BEGINNER,
+        }),
+        (error: unknown) =>
+            error instanceof OpenAIServiceError &&
+            error.code === 'OPENAI_QUOTA_EXCEEDED' &&
+            error.message === 'La operación de OpenAI no pudo completarse'
+    )
+    assert.equal(attempts, 1)
+})
+
 test('normalizes Responses refusals without making a real request', async () => {
     const fakeClient = {
         responses: {
