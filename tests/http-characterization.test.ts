@@ -750,6 +750,10 @@ test('protects users and owned resources without leaking credentials', async () 
         })
         assert.equal(failedGuide.status, 502)
         assert.equal(failedGuide.body.error.code, 'OPENAI_GUIDE_FAILED')
+        assert.equal(
+            failedGuide.body.error.details.reason,
+            'OPENAI_PROVIDER_ERROR'
+        )
 
         const progressAfterFailedGuide = await api(
             server.baseUrl,

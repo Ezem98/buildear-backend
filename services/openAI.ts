@@ -8,6 +8,12 @@ import { EXPERIENCE_LEVEL } from '../utils/consts.js'
 
 export const GUIDE_PROMPT_VERSION = 'guide-responses-v5-retailer-prices-usd'
 export const CHAT_PROMPT_VERSION = 'chat-responses-v3-guide-context'
+const GUIDE_GENERATION_ATTEMPTS = 2
+const RETRYABLE_GUIDE_ERRORS = new Set([
+    'OPENAI_PROVIDER_ERROR',
+    'OPENAI_RESPONSE_INCOMPLETE',
+    'OPENAI_OUTPUT_INVALID',
+])
 
 export interface ChatContextMessage {
     role: 'user' | 'assistant'
@@ -327,101 +333,118 @@ export class ResponsesOpenAIService implements OpenAIProvider {
             )
         }
 
-        try {
-            const response = await this.client.responses.parse({
-                model,
-                instructions: guideInstructions(),
-                input: guideInput(input),
-                tools: [
-                    {
-                        type: 'web_search',
-                        filters: {
-                            allowed_domains: ['easy.com.ar', 'sodimac.com.ar'],
-                        },
-                        search_context_size: 'low',
-                        user_location: {
-                            type: 'approximate',
-                            country: 'AR',
-                            region: 'Buenos Aires',
-                            city: 'Buenos Aires',
-                            timezone: 'America/Argentina/Buenos_Aires',
-                        },
-                    },
-                ],
-                tool_choice: 'required',
-                text: {
-                    format: zodTextFormat(
-                        guideSchema,
-                        'buildear_construction_guide'
-                    ),
-                },
-                store: false,
-            })
-
-            if (containsRefusal(response.output)) {
-                throw new OpenAIServiceError(
-                    'OPENAI_REFUSAL',
-                    failedMetadata(
-                        response.model,
-                        GUIDE_PROMPT_VERSION,
-                        startedAt,
-                        'OPENAI_REFUSAL',
-                        response.id,
-                        response.usage
-                    )
-                )
-            }
-
-            if (response.status !== 'completed') {
-                throw new OpenAIServiceError(
-                    'OPENAI_RESPONSE_INCOMPLETE',
-                    failedMetadata(
-                        response.model,
-                        GUIDE_PROMPT_VERSION,
-                        startedAt,
-                        'OPENAI_RESPONSE_INCOMPLETE',
-                        response.id,
-                        response.usage
-                    )
-                )
-            }
-
-            const parsed = guideSchema.safeParse(response.output_parsed)
-            if (!parsed.success || !hasConsecutiveSteps(parsed.data)) {
-                throw new OpenAIServiceError(
-                    'OPENAI_OUTPUT_INVALID',
-                    failedMetadata(
-                        response.model,
-                        GUIDE_PROMPT_VERSION,
-                        startedAt,
-                        'OPENAI_OUTPUT_INVALID',
-                        response.id,
-                        response.usage
-                    )
-                )
-            }
-
-            return {
-                data: parsed.data,
-                metadata: responseMetadata(
-                    response,
-                    GUIDE_PROMPT_VERSION,
-                    startedAt
-                ),
-            }
-        } catch (error) {
-            if (error instanceof OpenAIServiceError) throw error
-            throw new OpenAIServiceError(
-                'OPENAI_PROVIDER_ERROR',
-                failedMetadata(
+        for (
+            let attempt = 1;
+            attempt <= GUIDE_GENERATION_ATTEMPTS;
+            attempt += 1
+        ) {
+            try {
+                const response = await this.client.responses.parse({
                     model,
-                    GUIDE_PROMPT_VERSION,
-                    startedAt,
-                    'OPENAI_PROVIDER_ERROR'
-                ),
-                error
-            )
+                    instructions: guideInstructions(),
+                    input: guideInput(input),
+                    tools: [
+                        {
+                            type: 'web_search',
+                            filters: {
+                                allowed_domains: [
+                                    'easy.com.ar',
+                                    'sodimac.com.ar',
+                                ],
+                            },
+                            search_context_size: 'low',
+                            user_location: {
+                                type: 'approximate',
+                                country: 'AR',
+                                region: 'Buenos Aires',
+                                city: 'Buenos Aires',
+                                timezone: 'America/Argentina/Buenos_Aires',
+                            },
+                        },
+                    ],
+                    tool_choice: 'required',
+                    text: {
+                        format: zodTextFormat(
+                            guideSchema,
+                            'buildear_construction_guide'
+                        ),
+                    },
+                    store: false,
+                })
+
+                if (containsRefusal(response.output)) {
+                    throw new OpenAIServiceError(
+                        'OPENAI_REFUSAL',
+                        failedMetadata(
+                            response.model,
+                            GUIDE_PROMPT_VERSION,
+                            startedAt,
+                            'OPENAI_REFUSAL',
+                            response.id,
+                            response.usage
+                        )
+                    )
+                }
+
+                if (response.status !== 'completed') {
+                    throw new OpenAIServiceError(
+                        'OPENAI_RESPONSE_INCOMPLETE',
+                        failedMetadata(
+                            response.model,
+                            GUIDE_PROMPT_VERSION,
+                            startedAt,
+                            'OPENAI_RESPONSE_INCOMPLETE',
+                            response.id,
+                            response.usage
+                        )
+                    )
+                }
+
+                const parsed = guideSchema.safeParse(response.output_parsed)
+                if (!parsed.success || !hasConsecutiveSteps(parsed.data)) {
+                    throw new OpenAIServiceError(
+                        'OPENAI_OUTPUT_INVALID',
+                        failedMetadata(
+                            response.model,
+                            GUIDE_PROMPT_VERSION,
+                            startedAt,
+                            'OPENAI_OUTPUT_INVALID',
+                            response.id,
+                            response.usage
+                        )
+                    )
+                }
+
+                return {
+                    data: parsed.data,
+                    metadata: responseMetadata(
+                        response,
+                        GUIDE_PROMPT_VERSION,
+                        startedAt
+                    ),
+                }
+            } catch (error) {
+                const normalizedError =
+                    error instanceof OpenAIServiceError
+                        ? error
+                        : new OpenAIServiceError(
+                              'OPENAI_PROVIDER_ERROR',
+                              failedMetadata(
+                                  model,
+                                  GUIDE_PROMPT_VERSION,
+                                  startedAt,
+                                  'OPENAI_PROVIDER_ERROR'
+                              ),
+                              error
+                          )
+                const canRetry =
+                    RETRYABLE_GUIDE_ERRORS.has(normalizedError.code) &&
+                    attempt < GUIDE_GENERATION_ATTEMPTS
+                if (!canRetry) throw normalizedError
+            }
         }
+
+        throw new Error('Guide generation attempts exhausted')
     }
 
     async respondToMessage(

@@ -237,6 +237,49 @@ test('places persisted guide context before chat history without storing it', as
     ])
 })
 
+test('retries an incomplete guide response once', async () => {
+    let attempts = 0
+    const fakeClient = {
+        responses: {
+            parse: async () => {
+                attempts += 1
+                if (attempts === 1) {
+                    return {
+                        id: 'resp_incomplete_first_attempt',
+                        model: 'guide-test-model',
+                        status: 'incomplete',
+                        output_parsed: null,
+                        usage: null,
+                    }
+                }
+
+                return {
+                    id: 'resp_retry_success',
+                    model: 'guide-test-model',
+                    status: 'completed',
+                    output_parsed: generatedGuide,
+                    usage: { input_tokens: 100, output_tokens: 60 },
+                }
+            },
+        },
+    } as unknown as Pick<OpenAI, 'responses'>
+    const service = new ResponsesOpenAIService(fakeClient, {
+        guideModel: 'guide-test-model',
+        chatModel: 'chat-test-model',
+    })
+
+    const result = await service.generateGuide({
+        modelCategory: Categories.Floor,
+        modelName: 'piso',
+        modelSize: { width: 40, height: 40 },
+        experienceLevel: ExperienceLevel.BEGINNER,
+    })
+
+    assert.equal(attempts, 2)
+    assert.deepEqual(result.data, generatedGuide)
+    assert.equal(result.metadata.responseId, 'resp_retry_success')
+})
+
 test('normalizes incomplete Responses without making a real request', async () => {
     const fakeClient = {
         responses: {

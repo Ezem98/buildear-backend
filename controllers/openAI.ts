@@ -59,7 +59,8 @@ export class OpenAIController {
             throw new AppError(
                 502,
                 'OPENAI_GUIDE_FAILED',
-                'No se pudo generar o guardar la guía'
+                'No se pudo generar o guardar la guía',
+                { reason: message }
             )
         }
 

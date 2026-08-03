@@ -102,14 +102,15 @@ export class OpenAIModel {
         try {
             result = await provider().generateGuide(openAIProps)
         } catch (error) {
+            const metadata = failureMetadata('guide', error)
             await OpenAIWorkflowModel.saveGuideFailure(
                 userId,
                 modelId,
-                failureMetadata('guide', error)
+                metadata
             )
             return {
                 successfully: false,
-                message: 'Failed to generate steps',
+                message: metadata.errorCode ?? 'OPENAI_GUIDE_GENERATION_ERROR',
             }
         }
 
