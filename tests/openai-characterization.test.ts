@@ -113,10 +113,37 @@ test('uses Responses with structured output, store false and simulated telemetry
         instructions?: string
         input?: string
         text?: { format?: unknown }
+        tools?: unknown[]
+        tool_choice?: string
     }
     assert.ok(guidePayload.text?.format)
     assert.match(guidePayload.instructions ?? '', /No hagas preguntas/)
     assert.match(guidePayload.instructions ?? '', /lista de pasos/)
+    assert.match(guidePayload.instructions ?? '', /estimación orientativa/)
+    assert.match(guidePayload.instructions ?? '', /Easy Argentina/)
+    assert.match(guidePayload.instructions ?? '', /Sodimac Argentina/)
+    assert.match(guidePayload.instructions ?? '', /1 USD = 1500 ARS/)
+    assert.doesNotMatch(
+        guidePayload.instructions ?? '',
+        /Como la entrada no incluye una lista de precios verificable/
+    )
+    assert.deepEqual(guidePayload.tools, [
+        {
+            type: 'web_search',
+            filters: {
+                allowed_domains: ['easy.com.ar', 'sodimac.com.ar'],
+            },
+            search_context_size: 'low',
+            user_location: {
+                type: 'approximate',
+                country: 'AR',
+                region: 'Buenos Aires',
+                city: 'Buenos Aires',
+                timezone: 'America/Argentina/Buenos_Aires',
+            },
+        },
+    ])
+    assert.equal(guidePayload.tool_choice, 'required')
     assert.deepEqual(JSON.parse(guidePayload.input ?? '{}'), {
         tarea: 'construir',
         categoria: 'pared',
@@ -129,8 +156,16 @@ test('uses Responses with structured output, store false and simulated telemetry
         salida_interfaz: {
             formato: 'lista de pasos tipo nota de cuaderno',
             unidad_tiempo: 'minutos',
+            moneda_precios_consultados: 'ARS',
             moneda_costo: 'USD',
-            precios_verificados_disponibles: false,
+            tipo_cambio_ars_por_usd: 1500,
+            alcance_costo:
+                'materiales para una unidad; no incluye mano de obra, herramientas ni alquileres',
+            tipo_costo: 'estimación orientativa, no cotización',
+            fuentes_precio_permitidas: [
+                'https://www.easy.com.ar',
+                'https://www.sodimac.com.ar',
+            ],
         },
     })
     const chatPayload = calls[1].payload as {
