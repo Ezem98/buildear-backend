@@ -252,9 +252,11 @@ test('places persisted guide context before chat history without storing it', as
 
 test('retries an incomplete guide response once', async () => {
     let attempts = 0
+    const payloads: Array<Record<string, unknown>> = []
     const fakeClient = {
         responses: {
-            parse: async () => {
+            parse: async (payload: Record<string, unknown>) => {
+                payloads.push(payload)
                 attempts += 1
                 if (attempts === 1) {
                     return {
@@ -291,6 +293,58 @@ test('retries an incomplete guide response once', async () => {
     assert.equal(attempts, 2)
     assert.deepEqual(result.data, generatedGuide)
     assert.equal(result.metadata.responseId, 'resp_retry_success')
+    assert.equal(payloads[0].tool_choice, 'required')
+    assert.ok(Array.isArray(payloads[0].tools))
+    assert.equal(payloads[1].tool_choice, undefined)
+    assert.equal(payloads[1].tools, undefined)
+    assert.match(
+        String(payloads[1].instructions),
+        /La búsqueda de precios no está disponible/
+    )
+    assert.equal(
+        JSON.parse(String(payloads[1].input)).salida_interfaz
+            .costo_sin_busqueda,
+        0
+    )
+})
+
+test('falls back to a guide without retailer pricing when web search fails', async () => {
+    const payloads: Array<Record<string, unknown>> = []
+    const fakeClient = {
+        responses: {
+            parse: async (payload: Record<string, unknown>) => {
+                payloads.push(payload)
+                if (payloads.length === 1) {
+                    throw new Error('retailer search unavailable')
+                }
+
+                return {
+                    id: 'resp_without_retailer_prices',
+                    model: 'guide-test-model',
+                    status: 'completed',
+                    output_parsed: { ...generatedGuide, costo: 0 },
+                    usage: { input_tokens: 90, output_tokens: 55 },
+                }
+            },
+        },
+    } as unknown as Pick<OpenAI, 'responses'>
+    const service = new ResponsesOpenAIService(fakeClient, {
+        guideModel: 'guide-test-model',
+        chatModel: 'chat-test-model',
+    })
+
+    const result = await service.generateGuide({
+        modelCategory: Categories.Opening,
+        modelName: 'ventana corrediza',
+        modelSize: { width: 120, height: 100 },
+        experienceLevel: ExperienceLevel.BEGINNER,
+    })
+
+    assert.equal(payloads.length, 2)
+    assert.equal(payloads[0].tool_choice, 'required')
+    assert.equal(payloads[1].tool_choice, undefined)
+    assert.equal(result.data.costo, 0)
+    assert.equal(result.metadata.responseId, 'resp_without_retailer_prices')
 })
 
 test('normalizes incomplete Responses without making a real request', async () => {

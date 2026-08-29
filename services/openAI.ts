@@ -6,7 +6,8 @@ import type { IGuide } from '../types/guide.js'
 import type { IOpenAI } from '../types/openAI.js'
 import { EXPERIENCE_LEVEL } from '../utils/consts.js'
 
-export const GUIDE_PROMPT_VERSION = 'guide-responses-v6-argentine-vocabulary'
+export const GUIDE_PROMPT_VERSION =
+    'guide-responses-v7-resilient-pricing-fallback'
 export const CHAT_PROMPT_VERSION = 'chat-responses-v4-argentine-vocabulary'
 const GUIDE_GENERATION_ATTEMPTS = 2
 const RETRYABLE_GUIDE_ERRORS = new Set([
@@ -147,7 +148,18 @@ function hasConsecutiveSteps(guide: IGuide): boolean {
     return guide.pasos.every((step, index) => step.paso === index + 1)
 }
 
-function guideInstructions(): string {
+function guideInstructions(includeRetailerPricing: boolean): string {
+    const pricingInstructions = includeRetailerPricing
+        ? `
+- Antes de calcular costo, usá obligatoriamente la búsqueda web provista y consultá precios públicos actuales sólo en Easy Argentina y Sodimac Argentina. No uses precios de otros comercios ni conocimiento memorizado como reemplazo de esa búsqueda.
+- Calculá primero el total de materiales en pesos argentinos (ARS) y convertí el resultado a dólares estadounidenses usando exclusivamente la tasa fija 1 USD = 1500 ARS.
+- costo representa esa estimación orientativa final en USD para una unidad del modelo indicado; no incluyas mano de obra, herramientas, envíos ni alquiler de equipos.
+- Relacioná cada material con el producto y la presentación más comparables disponibles. Cuando la cantidad se desprenda de las dimensiones y del rendimiento publicado, redondeá hacia arriba la cantidad de unidades o envases necesarios y evitá contar dos veces el mismo insumo.
+- Los precios pueden variar por sucursal, disponibilidad, promoción y fecha: no presentes el valor como presupuesto, cotización ni precio garantizado. Usá el precio de venta público encontrado, redondeá el total a dos decimales y devolvé 0 sólo si la búsqueda no aporta ninguna referencia razonable en ambos sitios.`
+        : `
+- La búsqueda de precios no está disponible en este intento. No inventes ni uses precios memorizados: devolvé costo = 0.
+- La falta de una estimación de costo no debe impedir que generes la guía completa, sus pasos, materiales y tiempo_insumido.`
+
     return `
 Rol: generás guías didácticas de construcción para BuildeAR, una aplicación universitaria que muestra una lista de pasos con aspecto de nota de cuaderno.
 
@@ -180,11 +192,7 @@ Criterios por categoría:
 
 Estimaciones:
 - tiempo_insumido representa minutos de trabajo activo para una unidad del modelo; no incluye esperas pasivas de curado o secado. Usá 0 sólo si no existe una estimación razonable.
-- Antes de calcular costo, usá obligatoriamente la búsqueda web provista y consultá precios públicos actuales sólo en Easy Argentina y Sodimac Argentina. No uses precios de otros comercios ni conocimiento memorizado como reemplazo de esa búsqueda.
-- Calculá primero el total de materiales en pesos argentinos (ARS) y convertí el resultado a dólares estadounidenses usando exclusivamente la tasa fija 1 USD = 1500 ARS.
-- costo representa esa estimación orientativa final en USD para una unidad del modelo indicado; no incluyas mano de obra, herramientas, envíos ni alquiler de equipos.
-- Relacioná cada material con el producto y la presentación más comparables disponibles. Cuando la cantidad se desprenda de las dimensiones y del rendimiento publicado, redondeá hacia arriba la cantidad de unidades o envases necesarios y evitá contar dos veces el mismo insumo.
-- Los precios pueden variar por sucursal, disponibilidad, promoción y fecha: no presentes el valor como presupuesto, cotización ni precio garantizado. Usá el precio de venta público encontrado, redondeá el total a dos decimales y devolvé 0 sólo si la búsqueda no aporta ninguna referencia razonable en ambos sitios.
+${pricingInstructions}
 
 Salida: respetá exclusivamente el schema estructurado provisto por la aplicación.
 `.trim()
@@ -201,7 +209,7 @@ function categoryName(category: Categories): string {
     return categoryNames[category]
 }
 
-function guideInput(input: IOpenAI): string {
+function guideInput(input: IOpenAI, includeRetailerPricing: boolean): string {
     const action =
         input.modelCategory === Categories.Opening ||
         input.modelCategory === Categories.Floor ||
@@ -218,20 +226,27 @@ function guideInput(input: IOpenAI): string {
             alto_centimetros: input.modelSize.height,
         },
         experiencia: EXPERIENCE_LEVEL[input.experienceLevel],
-        salida_interfaz: {
-            formato: 'lista de pasos tipo nota de cuaderno',
-            unidad_tiempo: 'minutos',
-            moneda_precios_consultados: 'ARS',
-            moneda_costo: 'USD',
-            tipo_cambio_ars_por_usd: 1500,
-            alcance_costo:
-                'materiales para una unidad; no incluye mano de obra, herramientas ni alquileres',
-            tipo_costo: 'estimación orientativa, no cotización',
-            fuentes_precio_permitidas: [
-                'https://www.easy.com.ar',
-                'https://www.sodimac.com.ar',
-            ],
-        },
+        salida_interfaz: includeRetailerPricing
+            ? {
+                  formato: 'lista de pasos tipo nota de cuaderno',
+                  unidad_tiempo: 'minutos',
+                  moneda_precios_consultados: 'ARS',
+                  moneda_costo: 'USD',
+                  tipo_cambio_ars_por_usd: 1500,
+                  alcance_costo:
+                      'materiales para una unidad; no incluye mano de obra, herramientas ni alquileres',
+                  tipo_costo: 'estimación orientativa, no cotización',
+                  fuentes_precio_permitidas: [
+                      'https://www.easy.com.ar',
+                      'https://www.sodimac.com.ar',
+                  ],
+              }
+            : {
+                  formato: 'lista de pasos tipo nota de cuaderno',
+                  unidad_tiempo: 'minutos',
+                  moneda_costo: 'USD',
+                  costo_sin_busqueda: 0,
+              },
     })
 }
 
@@ -341,30 +356,36 @@ export class ResponsesOpenAIService implements OpenAIProvider {
             attempt += 1
         ) {
             try {
+                const includeRetailerPricing = attempt === 1
                 const response = await this.client.responses.parse({
                     model,
-                    instructions: guideInstructions(),
-                    input: guideInput(input),
-                    tools: [
-                        {
-                            type: 'web_search',
-                            filters: {
-                                allowed_domains: [
-                                    'easy.com.ar',
-                                    'sodimac.com.ar',
-                                ],
-                            },
-                            search_context_size: 'low',
-                            user_location: {
-                                type: 'approximate',
-                                country: 'AR',
-                                region: 'Buenos Aires',
-                                city: 'Buenos Aires',
-                                timezone: 'America/Argentina/Buenos_Aires',
-                            },
-                        },
-                    ],
-                    tool_choice: 'required',
+                    instructions: guideInstructions(includeRetailerPricing),
+                    input: guideInput(input, includeRetailerPricing),
+                    ...(includeRetailerPricing
+                        ? {
+                              tools: [
+                                  {
+                                      type: 'web_search' as const,
+                                      filters: {
+                                          allowed_domains: [
+                                              'easy.com.ar',
+                                              'sodimac.com.ar',
+                                          ],
+                                      },
+                                      search_context_size: 'low' as const,
+                                      user_location: {
+                                          type: 'approximate' as const,
+                                          country: 'AR',
+                                          region: 'Buenos Aires',
+                                          city: 'Buenos Aires',
+                                          timezone:
+                                              'America/Argentina/Buenos_Aires',
+                                      },
+                                  },
+                              ],
+                              tool_choice: 'required' as const,
+                          }
+                        : {}),
                     text: {
                         format: zodTextFormat(
                             guideSchema,
