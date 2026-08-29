@@ -655,7 +655,7 @@ test('protects users and owned resources without leaking credentials', async () 
         assert.deepEqual(
             generations.records.map((record) => record.prompt_version),
             [
-                'guide-responses-v6-argentine-vocabulary',
+                'guide-responses-v7-resilient-pricing-fallback',
                 'chat-responses-v4-argentine-vocabulary',
                 'chat-responses-v4-argentine-vocabulary',
             ]
