@@ -32,6 +32,13 @@ export const loginRateLimit = createRateLimiter({
     message: 'Demasiados intentos de login; intentá nuevamente más tarde',
 })
 
+export const refreshRateLimit = createRateLimiter({
+    windowMs: positiveInteger('AUTH_REFRESH_WINDOW_MS', 15 * 60 * 1000),
+    limit: positiveInteger('AUTH_REFRESH_LIMIT', 30),
+    code: 'REFRESH_RATE_LIMITED',
+    message: 'Demasiados intentos de renovar la sesión',
+})
+
 export const registrationRateLimit = createRateLimiter({
     windowMs: positiveInteger('AUTH_REGISTRATION_WINDOW_MS', 60 * 60 * 1000),
     limit: positiveInteger('AUTH_REGISTRATION_LIMIT', 5),

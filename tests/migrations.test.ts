@@ -76,6 +76,7 @@ test('migrates an empty local database and remains idempotent', async () => {
             '0002',
             '0003',
             '0004',
+            '0005',
         ])
         assert.deepEqual(firstRun.data?.tables, [
             'ai_generations',
@@ -89,7 +90,7 @@ test('migrates an empty local database and remains idempotent', async () => {
             'user_models',
             'users',
         ])
-        assert.equal(firstRun.data?.indexCount, 10)
+        assert.equal(firstRun.data?.indexCount, 12)
         assert.deepEqual(firstRun.data?.categories, [
             'roof',
             'floor',
@@ -102,6 +103,12 @@ test('migrates an empty local database and remains idempotent', async () => {
 
         const expectedMetadataColumns: Record<string, string[]> = {
             users: ['role', 'password_algorithm', 'password_params'],
+            auth_sessions: [
+                'refresh_token_hash',
+                'refresh_expires_at',
+                'session_family',
+                'rotated_at',
+            ],
             models: [
                 'model_public_id',
                 'image_public_id',
@@ -146,7 +153,7 @@ test('migrates an empty local database and remains idempotent', async () => {
             pending: string[]
         }>('verify', databaseUrl)
         assert.equal(verification.status, 0, verification.stderr)
-        assert.equal(verification.data?.applied.length, 4)
+        assert.equal(verification.data?.applied.length, 5)
         assert.deepEqual(verification.data?.pending, [])
         assert.match(
             verification.data?.applied[0].checksum ?? '',
@@ -184,7 +191,7 @@ test('rolls back a failed migration without recording its checksum', async () =>
     const databaseUrl = localDatabaseUrl(temporaryDirectory, 'rollback.db')
     await cp(migrationsDirectory, copiedMigrations, { recursive: true })
     await writeFile(
-        path.join(copiedMigrations, '0005_intentional_failure.sql'),
+        path.join(copiedMigrations, '0006_intentional_failure.sql'),
         `
             CREATE TABLE rollback_probe (id INTEGER PRIMARY KEY);
             THIS IS NOT VALID SQL;
@@ -199,7 +206,7 @@ test('rolls back a failed migration without recording its checksum', async () =>
             copiedMigrations
         )
         assert.notEqual(failedRun.status, 0)
-        assert.match(failedRun.stderr, /Falló la migración 0005/)
+        assert.match(failedRun.stderr, /Falló la migración 0006/)
 
         const inspection = runMigrationProcess<{
             versions: string[]
@@ -211,6 +218,7 @@ test('rolls back a failed migration without recording its checksum', async () =>
             '0002',
             '0003',
             '0004',
+            '0005',
         ])
         assert.equal(inspection.data?.rollbackProbeExists, false)
     } finally {

@@ -6,3 +6,9 @@ export const loginSchema = z
         password: z.string().min(1).max(256),
     })
     .strict()
+
+export const refreshSchema = z
+    .object({
+        refresh_token: z.string().min(32).max(256),
+    })
+    .strict()

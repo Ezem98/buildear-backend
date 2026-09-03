@@ -1,6 +1,15 @@
 import z from 'zod'
 import { ExperienceLevel } from '../enums/experienceLevel.js'
 
+const httpUrl = z
+    .url('Image must be a valid URL')
+    .refine(
+        (value) => value.startsWith('https://') || value.startsWith('http://'),
+        {
+            message: 'Image URL must use HTTP or HTTPS',
+        }
+    )
+
 export const userSchema = z
     .object({
         name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -11,7 +20,7 @@ export const userSchema = z
             .string()
             .min(8, 'Password must contain at least 8 characters')
             .max(256),
-        image: z.string().optional(),
+        image: httpUrl.optional(),
         experience_level: z
             .number()
             .int()
@@ -32,7 +41,7 @@ export const updateUserSchema = z
     .object({
         username: z.string().min(6, 'Username must be at least 6 characters'),
         email: z.string().email('Invalid email format'),
-        image: z.string().optional(),
+        image: httpUrl.optional(),
         experience_level: z
             .number()
             .int()

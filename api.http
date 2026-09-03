@@ -3,6 +3,8 @@
 @userId = 1
 @modelId = 1
 @conversationId = 1
+@username = usuario_prueba
+@refreshToken = reemplazar-con-refresh-token
 
 # Registrar usuario
 POST {{baseUrl}}/users HTTP/1.1
@@ -27,6 +29,42 @@ Content-Type: application/json
 {
   "username": "usuario_prueba",
   "password": "una-clave-segura"
+}
+
+###
+
+# Actualizar perfil. La contraseña y los valores null no pertenecen a este contrato.
+PATCH {{baseUrl}}/users/{{username}} HTTP/1.1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "username": "usuario_prueba",
+  "email": "usuario_prueba@example.test",
+  "experience_level": 2,
+  "completed_profile": 1
+}
+
+###
+
+# Cambiar contraseña. La operación revoca todas las sesiones del usuario.
+POST {{baseUrl}}/users/me/password HTTP/1.1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "password": "una-clave-segura",
+  "newPassword": "otra-clave-segura"
+}
+
+###
+
+# Renovar y rotar la sesión. Copiar los dos tokens nuevos de la respuesta.
+POST {{baseUrl}}/auth/refresh HTTP/1.1
+Content-Type: application/json
+
+{
+  "refresh_token": "{{refreshToken}}"
 }
 
 ###

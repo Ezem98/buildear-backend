@@ -54,6 +54,7 @@ try {
         const metadata: Record<string, string[]> = {}
         for (const table of [
             'users',
+            'auth_sessions',
             'models',
             'user_models',
             'conversations',
@@ -230,6 +231,13 @@ try {
         const result = await client.execute(`
             UPDATE auth_sessions
             SET expires_at = '2000-01-01 00:00:00'
+            WHERE revoked_at IS NULL
+        `)
+        console.log(JSON.stringify({ expired: result.rowsAffected }))
+    } else if (command === 'expire-refresh-sessions') {
+        const result = await client.execute(`
+            UPDATE auth_sessions
+            SET refresh_expires_at = '2000-01-01 00:00:00'
             WHERE revoked_at IS NULL
         `)
         console.log(JSON.stringify({ expired: result.rowsAffected }))
