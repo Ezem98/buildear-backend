@@ -4,6 +4,7 @@ import { db } from '../utils/consts.js'
 
 const DEFAULT_ACCESS_TTL_SECONDS = 60 * 60
 const DEFAULT_REFRESH_TTL_SECONDS = 7 * 24 * 60 * 60
+const DEFAULT_ACCESS_ROTATION_GRACE_SECONDS = 30
 
 function tokenHash(token: string): string {
     return createHash('sha256').update(token).digest('hex')
@@ -24,6 +25,13 @@ function positiveInteger(name: string, fallback: number): number {
         : fallback
 }
 
+function nonNegativeInteger(name: string, fallback: number): number {
+    const configured = Number(process.env[name])
+    return Number.isInteger(configured) && configured >= 0
+        ? configured
+        : fallback
+}
+
 function accessTtlSeconds(): number {
     return positiveInteger(
         'AUTH_ACCESS_TTL_SECONDS',
@@ -35,6 +43,13 @@ function refreshTtlSeconds(): number {
     return positiveInteger(
         'AUTH_REFRESH_TTL_SECONDS',
         DEFAULT_REFRESH_TTL_SECONDS
+    )
+}
+
+function accessRotationGraceSeconds(): number {
+    return nonNegativeInteger(
+        'AUTH_ACCESS_ROTATION_GRACE_SECONDS',
+        DEFAULT_ACCESS_ROTATION_GRACE_SECONDS
     )
 }
 
@@ -53,16 +68,15 @@ export type RotateSessionResult =
 async function insertSession(
     transaction: Transaction,
     userId: number,
-    family: string,
-    refreshExpiresAt?: Date
+    family: string
 ): Promise<CreatedSession> {
     const token = randomBytes(32).toString('base64url')
     const refreshToken = randomBytes(48).toString('base64url')
     const now = Date.now()
     const expiresAt = dateWithoutMilliseconds(now + accessTtlSeconds() * 1000)
-    const effectiveRefreshExpiry =
-        refreshExpiresAt ??
-        dateWithoutMilliseconds(now + refreshTtlSeconds() * 1000)
+    const refreshExpiresAt = dateWithoutMilliseconds(
+        now + refreshTtlSeconds() * 1000
+    )
 
     await transaction.execute({
         sql: `
@@ -81,7 +95,7 @@ async function insertSession(
             tokenHash(token),
             sqliteTimestamp(expiresAt),
             tokenHash(refreshToken),
-            sqliteTimestamp(effectiveRefreshExpiry),
+            sqliteTimestamp(refreshExpiresAt),
             family,
         ],
     })
@@ -90,7 +104,7 @@ async function insertSession(
         token,
         expiresAt: expiresAt.toISOString(),
         refreshToken,
-        refreshExpiresAt: effectiveRefreshExpiry.toISOString(),
+        refreshExpiresAt: refreshExpiresAt.toISOString(),
     }
 }
 
@@ -188,9 +202,7 @@ export class AuthSessionModel {
             await transaction.execute({
                 sql: `
                     UPDATE auth_sessions
-                    SET
-                        revoked_at = CURRENT_TIMESTAMP,
-                        rotated_at = CURRENT_TIMESTAMP
+                    SET rotated_at = CURRENT_TIMESTAMP
                     WHERE refresh_token_hash = ?
                       AND revoked_at IS NULL
                       AND rotated_at IS NULL
@@ -199,12 +211,7 @@ export class AuthSessionModel {
             })
 
             const userId = Number(row.user_id)
-            const session = await insertSession(
-                transaction,
-                userId,
-                family,
-                refreshExpiresAt
-            )
+            const session = await insertSession(transaction, userId, family)
             await transaction.commit()
             return { status: 'ok', userId, session }
         } catch (error) {
@@ -229,9 +236,16 @@ export class AuthSessionModel {
                         s.token_hash = ?
                         AND s.revoked_at IS NULL
                         AND s.expires_at > CURRENT_TIMESTAMP
+                        AND (
+                            s.rotated_at IS NULL
+                            OR s.rotated_at > datetime(CURRENT_TIMESTAMP, ?)
+                        )
                     LIMIT 1
                 `,
-                args: [tokenHash(token)],
+                args: [
+                    tokenHash(token),
+                    `-${accessRotationGraceSeconds()} seconds`,
+                ],
             })
         ).rows[0]
     }

@@ -58,6 +58,7 @@ async function startServer(url: string): Promise<{
             TURSO_DATABASE_URL: url,
             TURSO_AUTH_TOKEN: '',
             AUTH_SESSION_TTL_SECONDS: '3600',
+            AUTH_ACCESS_ROTATION_GRACE_SECONDS: '30',
             AUTH_LOGIN_LIMIT: '10',
             CORS_ALLOWED_ORIGINS: 'http://allowed.example.test',
         },
@@ -1068,15 +1069,26 @@ test('protects users and owned resources without leaking credentials', async () 
             refreshedBob.body.data.refresh_token
         )
         assert.notEqual(rotatedBobRefreshToken, bobRefreshToken)
-        assert.equal(
-            refreshedBob.body.data.refresh_expires_at,
-            bobLogin.body.data.refresh_expires_at
+        assert.ok(
+            new Date(refreshedBob.body.data.refresh_expires_at) >
+                new Date(bobLogin.body.data.refresh_expires_at)
         )
 
         const oldAccessAfterRefresh = await api(server.baseUrl, '/users/me', {
             token: bobToken,
         })
-        assert.equal(oldAccessAfterRefresh.status, 401)
+        assert.equal(oldAccessAfterRefresh.status, 200)
+
+        const expiredAccessGrace = runDatabaseHelper<{ expired: number }>(
+            'expire-access-rotation-grace',
+            url,
+            bobToken
+        )
+        assert.equal(expiredAccessGrace.expired, 1)
+        const oldAccessAfterGrace = await api(server.baseUrl, '/users/me', {
+            token: bobToken,
+        })
+        assert.equal(oldAccessAfterGrace.status, 401)
 
         const reusedRefresh = await api(server.baseUrl, '/auth/refresh', {
             method: 'POST',
