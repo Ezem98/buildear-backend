@@ -58,6 +58,7 @@ async function startServer(url: string): Promise<{
             TURSO_DATABASE_URL: url,
             TURSO_AUTH_TOKEN: '',
             AUTH_SESSION_TTL_SECONDS: '3600',
+            AUTH_ACCESS_ROTATION_GRACE_SECONDS: '30',
             AUTH_LOGIN_LIMIT: '10',
             CORS_ALLOWED_ORIGINS: 'http://allowed.example.test',
         },
@@ -286,6 +287,25 @@ test('protects users and owned resources without leaking credentials', async () 
         assertPublicUser(bobRegistration.body.data)
         const bobId = Number(bobRegistration.body.data.id)
 
+        const registrationWithImage = await api(server.baseUrl, '/users', {
+            method: 'POST',
+            body: {
+                name: 'Charlie',
+                surname: 'Tester',
+                username: 'charlie1',
+                email: 'charlie@example.test',
+                password: 'charlie-password',
+                image: 'https://images.example.test/charlie.png',
+                experience_level: 1,
+                completed_profile: 0,
+            },
+        })
+        assert.equal(registrationWithImage.status, 201)
+        assert.match(
+            registrationWithImage.body.data.image,
+            /^https:\/\/assets\.example\.test\/usersImages\//
+        )
+
         const promotion = runDatabaseHelper<{ updated: number }>(
             'promote-user',
             url,
@@ -313,6 +333,14 @@ test('protects users and owned resources without leaking credentials', async () 
         assertPublicUser(aliceLogin.body.data.user)
         assert.equal(aliceLogin.body.data.user.role, 'admin')
         const aliceToken = String(aliceLogin.body.data.access_token)
+        assert.match(
+            String(aliceLogin.body.data.refresh_token),
+            /^[A-Za-z0-9_-]+$/
+        )
+        assert.ok(
+            new Date(String(aliceLogin.body.data.refresh_expires_at)) >
+                new Date()
+        )
 
         const bobLogin = await api(server.baseUrl, '/auth/login', {
             method: 'POST',
@@ -324,6 +352,7 @@ test('protects users and owned resources without leaking credentials', async () 
         assert.equal(bobLogin.status, 200)
         assert.equal(bobLogin.body.data.user.role, 'user')
         const bobToken = String(bobLogin.body.data.access_token)
+        const bobRefreshToken = String(bobLogin.body.data.refresh_token)
 
         const legacyLogin = await api(server.baseUrl, '/auth/login', {
             method: 'POST',
@@ -368,6 +397,33 @@ test('protects users and owned resources without leaking credentials', async () 
             }
         )
         assert.equal(passwordInsidePatch.status, 400)
+
+        const nullImageInsidePatch = await api(
+            server.baseUrl,
+            '/users/alice01',
+            {
+                method: 'PATCH',
+                token: aliceToken,
+                body: { image: null },
+            }
+        )
+        assert.equal(nullImageInsidePatch.status, 400)
+        assert.equal(nullImageInsidePatch.body.error.code, 'VALIDATION_ERROR')
+
+        const profileUpdate = await api(server.baseUrl, '/users/alice01', {
+            method: 'PATCH',
+            token: aliceToken,
+            body: {
+                username: 'alice01',
+                email: 'alice@example.test',
+                experience_level: 2,
+                completed_profile: 1,
+            },
+        })
+        assert.equal(profileUpdate.status, 200)
+        assert.equal(profileUpdate.body.data.experience_level, 2)
+        assert.equal(profileUpdate.body.data.completed_profile, 1)
+        assert.equal(profileUpdate.body.data.image, null)
 
         const publicModel = await api(
             server.baseUrl,
@@ -1001,6 +1057,73 @@ test('protects users and owned resources without leaking credentials', async () 
             token: newToken,
         })
         assert.equal(revokedAfterLogout.status, 401)
+
+        const refreshedBob = await api(server.baseUrl, '/auth/refresh', {
+            method: 'POST',
+            body: { refresh_token: bobRefreshToken },
+        })
+        assert.equal(refreshedBob.status, 200)
+        assert.equal(refreshedBob.body.data.user.id, bobId)
+        const refreshedBobToken = String(refreshedBob.body.data.access_token)
+        const rotatedBobRefreshToken = String(
+            refreshedBob.body.data.refresh_token
+        )
+        assert.notEqual(rotatedBobRefreshToken, bobRefreshToken)
+        assert.ok(
+            new Date(refreshedBob.body.data.refresh_expires_at) >
+                new Date(bobLogin.body.data.refresh_expires_at)
+        )
+
+        const oldAccessAfterRefresh = await api(server.baseUrl, '/users/me', {
+            token: bobToken,
+        })
+        assert.equal(oldAccessAfterRefresh.status, 200)
+
+        const expiredAccessGrace = runDatabaseHelper<{ expired: number }>(
+            'expire-access-rotation-grace',
+            url,
+            bobToken
+        )
+        assert.equal(expiredAccessGrace.expired, 1)
+        const oldAccessAfterGrace = await api(server.baseUrl, '/users/me', {
+            token: bobToken,
+        })
+        assert.equal(oldAccessAfterGrace.status, 401)
+
+        const reusedRefresh = await api(server.baseUrl, '/auth/refresh', {
+            method: 'POST',
+            body: { refresh_token: bobRefreshToken },
+        })
+        assert.equal(reusedRefresh.status, 401)
+        assert.equal(reusedRefresh.body.error.code, 'REFRESH_TOKEN_REUSED')
+
+        const familyRevokedAfterReuse = await api(server.baseUrl, '/users/me', {
+            token: refreshedBobToken,
+        })
+        assert.equal(familyRevokedAfterReuse.status, 401)
+
+        const bobLoginForExpiration = await api(server.baseUrl, '/auth/login', {
+            method: 'POST',
+            body: {
+                username: 'bob0001',
+                password: 'bob-password',
+            },
+        })
+        assert.equal(bobLoginForExpiration.status, 200)
+        const expiringRefreshToken = String(
+            bobLoginForExpiration.body.data.refresh_token
+        )
+        const refreshExpiration = runDatabaseHelper<{ expired: number }>(
+            'expire-refresh-sessions',
+            url
+        )
+        assert.ok(refreshExpiration.expired >= 1)
+        const expiredRefresh = await api(server.baseUrl, '/auth/refresh', {
+            method: 'POST',
+            body: { refresh_token: expiringRefreshToken },
+        })
+        assert.equal(expiredRefresh.status, 401)
+        assert.equal(expiredRefresh.body.error.code, 'INVALID_REFRESH_TOKEN')
 
         let rateLimited: ApiResponse | undefined
         for (let attempt = 0; attempt < 10; attempt += 1) {

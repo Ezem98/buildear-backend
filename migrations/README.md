@@ -14,6 +14,12 @@ npm run db:migrate:staging
 npm run db:migrate:staging:verify
 ```
 
+La auditoría de solo lectura para modelos que no pueden generar una guía se
+ejecuta con `npm run data:audit:models`. Devuelve código de salida `1` y lista
+las filas con dimensiones no positivas o categoría fuera de 1–5. Para apuntar
+a Turso, se deben definir `TURSO_DATABASE_URL` y `TURSO_AUTH_TOKEN`; el comando
+nunca modifica registros.
+
 Ambos comandos usan `TURSO_DATABASE_URL` y `TURSO_AUTH_TOKEN` cuando están
 definidos; sin esas variables operan sobre `file:local.db`. `db:migrate` aplica
 únicamente archivos pendientes dentro de una transacción por migración.
@@ -39,6 +45,8 @@ versionado es `.env.staging.example`.
 - `0004_auth_hardening.sql`: agrega `users.role` y metadata versionada de
   contraseñas para migrar PBKDF2 a scrypt en el próximo login válido; fue
   aplicada y verificada localmente y en `buildear-db-staging`.
+- `0005_refresh_sessions.sql`: agrega refresh tokens rotativos con vencimiento
+  absoluto de siete días y familias de sesión para detectar reutilización.
 - `0001` y `0002` fueron aplicadas a `buildear-db` y registradas el
   2026-07-27.
 - Antes del DDL se creó la rama de respaldo
@@ -55,14 +63,13 @@ versionado es `.env.staging.example`.
 
 ## Base local
 
-`local.db` fue actualizada hasta `0004`. La base legacy, que contenía
-tres usuarios sin `password_salt`, se conservó en
-`.backups/local.legacy-20260727.db` y no debe versionarse.
+`local.db` no se versiona. Se crea o actualiza en cada entorno mediante
+`npm run db:migrate`; cualquier respaldo local debe quedar fuera de Git.
 
 No se deben editar migraciones ya registradas. Todo cambio de esquema nuevo debe
 agregarse en un archivo SQL con la siguiente versión.
 
 El test `tests/migrations.test.ts` cubre una base `file:` vacía, la
-idempotencia, las diez tablas, diez índices, cinco categorías, las 14 columnas
-de metadata, sesiones, roles, metadata de contraseñas, rechazo de filas
+idempotencia, las diez tablas, doce índices, cinco categorías, las columnas de
+metadata, sesiones rotativas, roles, metadata de contraseñas, rechazo de filas
 huérfanas, detección de checksum modificado y rollback de una migración fallida.

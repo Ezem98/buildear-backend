@@ -95,6 +95,12 @@ const fakeProvider: OpenAIProvider = {
 OpenAIModel.setProviderForTests(fakeProvider)
 CloudinaryModel.setProviderForTests({
     async upload(filePath, options) {
+        if (
+            options.folder === 'usersImages' &&
+            !/^https?:\/\//i.test(filePath)
+        ) {
+            throw new Error('Profile images must use the submitted URL')
+        }
         const format =
             options.resource_type === 'raw'
                 ? filePath.toLowerCase().endsWith('.gltf')

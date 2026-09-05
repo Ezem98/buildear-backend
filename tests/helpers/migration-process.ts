@@ -1,4 +1,4 @@
-import { pbkdf2, randomBytes } from 'node:crypto'
+import { createHash, pbkdf2, randomBytes } from 'node:crypto'
 import { promisify } from 'node:util'
 import { createDatabaseClient } from '../../database/client.js'
 import {
@@ -54,6 +54,7 @@ try {
         const metadata: Record<string, string[]> = {}
         for (const table of [
             'users',
+            'auth_sessions',
             'models',
             'user_models',
             'conversations',
@@ -232,6 +233,27 @@ try {
             SET expires_at = '2000-01-01 00:00:00'
             WHERE revoked_at IS NULL
         `)
+        console.log(JSON.stringify({ expired: result.rowsAffected }))
+    } else if (command === 'expire-refresh-sessions') {
+        const result = await client.execute(`
+            UPDATE auth_sessions
+            SET refresh_expires_at = '2000-01-01 00:00:00'
+            WHERE revoked_at IS NULL
+        `)
+        console.log(JSON.stringify({ expired: result.rowsAffected }))
+    } else if (command === 'expire-access-rotation-grace') {
+        if (!argument) {
+            throw new Error('expire-access-rotation-grace requires a token')
+        }
+        const hash = createHash('sha256').update(argument).digest('hex')
+        const result = await client.execute({
+            sql: `
+                UPDATE auth_sessions
+                SET rotated_at = datetime(CURRENT_TIMESTAMP, '-31 seconds')
+                WHERE token_hash = ? AND rotated_at IS NOT NULL
+            `,
+            args: [hash],
+        })
         console.log(JSON.stringify({ expired: result.rowsAffected }))
     } else {
         throw new Error(`Unknown test command: ${command}`)
